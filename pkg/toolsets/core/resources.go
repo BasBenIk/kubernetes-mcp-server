@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 
@@ -61,6 +62,8 @@ func initResources(p api.FilteringProvider) []api.ServerTool {
 						Description: "Optional Kubernetes field selector to filter resources by field values (e.g. 'status.phase=Running', 'metadata.name=myresource'). Supported fields vary by resource type. For Pods: metadata.name, metadata.namespace, spec.nodeName, spec.restartPolicy, spec.schedulerName, spec.serviceAccountName, status.phase (Pending/Running/Succeeded/Failed/Unknown), status.podIP, status.nominatedNodeName. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
 						Pattern:     REGEX_FIELDSELECTOR,
 					},
+					"limit":          {Type: "integer", Description: "Maximum items to return in this page (1-500). Omit for all items.", Minimum: ptr.To(float64(1)), Maximum: ptr.To(float64(500))},
+					"continue_token": {Type: "string", Description: "Opaque token from a previous paginated response using the same filters."},
 				},
 				Required: []string{"apiVersion", "kind"},
 			},
@@ -271,6 +274,17 @@ func resourcesList(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
 		}
 		resourceListOptions.FieldSelector = f
 	}
+	p := api.WrapParams(params)
+	limit := p.OptionalInt64("limit", 0)
+	continueToken := p.OptionalString("continue_token", "")
+	if err := p.Err(); err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to list resources: %w", err)), nil
+	}
+	if limit < 0 || limit > 500 {
+		return api.NewToolCallResult("", fmt.Errorf("failed to list resources: limit must be between 1 and 500")), nil
+	}
+	resourceListOptions.Limit = limit
+	resourceListOptions.Continue = continueToken
 	gvk, err := parseGroupVersionKind(params.GetArguments())
 	if err != nil {
 		return api.NewToolCallResult("", fmt.Errorf("failed to list resources, %s", err)), nil
@@ -288,6 +302,9 @@ func resourcesList(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
 	printed, err := params.ListOutput.PrintObjStructured(ret)
 	if err != nil {
 		return api.NewToolCallResult("", fmt.Errorf("failed to format resources: %w", err)), nil
+	}
+	if list, ok := ret.(*unstructured.UnstructuredList); ok && list.GetContinue() != "" {
+		printed.Text += fmt.Sprintf("\n# Results are paginated. Use continue_token %q with the same filters to retrieve the next page.\n", list.GetContinue())
 	}
 	return api.NewToolCallResultFull(printed.Text, printed.Structured, nil), nil
 }

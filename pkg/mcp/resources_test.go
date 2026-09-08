@@ -170,6 +170,12 @@ func (s *ResourcesSuite) TestResourcesList() {
 			}
 		})
 	})
+	s.Run("resources_list returns a continuation token for an explicit limit", func() {
+		result, err := s.CallTool("resources_list", map[string]interface{}{"apiVersion": "v1", "kind": "Namespace", "limit": 1})
+		s.Require().NoError(err)
+		s.False(result.IsError)
+		s.Contains(result.Content[0].(*mcp.TextContent).Text, "continue_token")
+	})
 }
 
 func (s *ResourcesSuite) TestAPIResourcesList() {
