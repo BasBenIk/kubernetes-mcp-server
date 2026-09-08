@@ -456,6 +456,33 @@ func (s *ResourcesSuite) TestResourcesGet() {
 			s.Equal("default", metadata["name"], "structured metadata.name should be default")
 		})
 	})
+	s.Run("resources_get status_only returns just status with structured content", func() {
+		result, err := s.CallTool("resources_get", map[string]interface{}{"apiVersion": "v1", "kind": "Namespace", "name": "default", "status_only": true})
+		s.Require().NoError(err)
+		s.False(result.IsError)
+		var status map[string]interface{}
+		s.Require().NoError(yaml.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &status))
+		s.Contains(status, "phase")
+		s.NotContains(status, "metadata")
+		structured, ok := result.StructuredContent.(map[string]interface{})
+		s.Require().True(ok)
+		s.Equal(status["phase"], structured["phase"])
+	})
+	s.Run("resources_get status_only returns empty object when status is absent", func() {
+		client := kubernetes.NewForConfigOrDie(test.EnvTestRestConfig())
+		_, err := client.CoreV1().ConfigMaps("default").Create(s.T().Context(), &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "status-only-configmap"}}, metav1.CreateOptions{})
+		s.Require().NoError(err)
+		result, err := s.CallTool("resources_get", map[string]interface{}{"apiVersion": "v1", "kind": "ConfigMap", "name": "status-only-configmap", "namespace": "default", "status_only": true})
+		s.Require().NoError(err)
+		s.False(result.IsError)
+		s.Equal(map[string]interface{}{}, result.StructuredContent)
+	})
+	s.Run("resources_get rejects a non-boolean status_only value", func() {
+		result, err := s.CallTool("resources_get", map[string]interface{}{"apiVersion": "v1", "kind": "Namespace", "name": "default", "status_only": "true"})
+		s.Require().NoError(err)
+		s.True(result.IsError)
+		s.Contains(result.Content[0].(*mcp.TextContent).Text, "status_only")
+	})
 }
 
 func (s *ResourcesSuite) TestResourcesGetDenied() {

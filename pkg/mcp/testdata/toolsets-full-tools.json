@@ -559,6 +559,10 @@
         "namespace": {
           "description": "Optional Namespace to retrieve the namespaced resource from (ignored in case of cluster scoped resources). If not provided, will get resource from configured namespace",
           "type": "string"
+        },
+        "status_only": {
+          "description": "If true, return only the resource status object. Returns an empty object when status is absent.",
+          "type": "boolean"
         }
       },
       "required": [

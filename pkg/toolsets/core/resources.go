@@ -96,6 +96,10 @@ func initResources(p api.FilteringProvider) []api.ServerTool {
 						Type:        "string",
 						Description: "Name of the resource",
 					},
+					"status_only": {
+						Type:        "boolean",
+						Description: "If true, return only the resource status object. Returns an empty object when status is absent.",
+					},
 				},
 				Required: []string{"apiVersion", "kind", "name"},
 			},
@@ -332,10 +336,29 @@ func resourcesGet(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
 	if !ok {
 		return api.NewToolCallResult("", fmt.Errorf("name is not a string")), nil
 	}
+	p := api.WrapParams(params)
+	statusOnly := p.OptionalBool("status_only", false)
+	if err := p.Err(); err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to get resource: %w", err)), nil
+	}
 
 	ret, err := kubernetes.NewCore(params).ResourcesGet(params, gvk, ns, n)
 	if err != nil {
 		return api.NewToolCallResult("", fmt.Errorf("failed to get resource: %w", err)), nil
+	}
+	if statusOnly {
+		status, found, err := unstructured.NestedMap(ret.Object, "status")
+		if err != nil {
+			return api.NewToolCallResult("", fmt.Errorf("failed to get resource status: %w", err)), nil
+		}
+		if !found {
+			status = map[string]interface{}{}
+		}
+		printed, err := output.Yaml.PrintObjStructured(&unstructured.Unstructured{Object: status})
+		if err != nil {
+			return api.NewToolCallResult("", fmt.Errorf("failed to format resource status: %w", err)), nil
+		}
+		return api.NewToolCallResultFull(printed.Text, printed.Structured, nil), nil
 	}
 	printed, err := output.Yaml.PrintObjStructured(ret)
 	if err != nil {
