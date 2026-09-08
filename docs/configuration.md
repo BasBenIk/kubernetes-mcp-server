@@ -350,17 +350,18 @@ Toolsets group related tools together. Enable only the toolsets you need to redu
 
 <!-- AVAILABLE-TOOLSETS-START -->
 
-| Toolset   | Description                                                                                                                                                                                                                             | Default |
-|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
-| argocd    | Read-only Argo CD Application fleet status and drift diagnostics.                                                                                                                                                                       |         |
-| config    | View and manage the current local Kubernetes configuration (kubeconfig)                                                                                                                                                                 | ✓       |
-| core      | Most common tools for Kubernetes management (Pods, Generic Resources, Events, etc.)                                                                                                                                                     | ✓       |
-| helm      | Tools for managing Helm charts and releases                                                                                                                                                                                             |         |
-| kcp       | Manage kcp workspaces and multi-tenancy features                                                                                                                                                                                        |         |
-| kiali     | Most common tools for managing Kiali, check the [Kiali documentation](https://github.com/containers/kubernetes-mcp-server/blob/main/docs/KIALI.md) for more details.                                                                    |         |
-| kubevirt  | KubeVirt virtual machine management tools, check the [KubeVirt documentation](https://github.com/containers/kubernetes-mcp-server/blob/main/docs/kubevirt.md) for more details.                                                         |         |
-| netobserv | Network observability tools backed by the NetObserv console plugin API (flows, metrics, export). Check the [NetObserv documentation](https://github.com/containers/kubernetes-mcp-server/blob/main/docs/NETOBSERV.md) for more details. |         |
-| tekton    | Tekton pipeline management tools for Pipelines, PipelineRuns, Tasks, TaskRuns, and troubleshooting.                                                                                                                                     |         |
+| Toolset               | Description                                                                                                                                                                                                                             | Default |
+|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
+| argocd                | Read-only Argo CD Application fleet status and drift diagnostics.                                                                                                                                                                       |         |
+| config                | View and manage the current local Kubernetes configuration (kubeconfig)                                                                                                                                                                 | ✓       |
+| core                  | Most common tools for Kubernetes management (Pods, Generic Resources, Events, etc.)                                                                                                                                                     | ✓       |
+| helm                  | Tools for managing Helm charts and releases                                                                                                                                                                                             |         |
+| kcp                   | Manage kcp workspaces and multi-tenancy features                                                                                                                                                                                        |         |
+| kiali                 | Most common tools for managing Kiali, check the [Kiali documentation](https://github.com/containers/kubernetes-mcp-server/blob/main/docs/KIALI.md) for more details.                                                                    |         |
+| kubevirt              | KubeVirt virtual machine management tools, check the [KubeVirt documentation](https://github.com/containers/kubernetes-mcp-server/blob/main/docs/kubevirt.md) for more details.                                                         |         |
+| netobserv             | Network observability tools backed by the NetObserv console plugin API (flows, metrics, export). Check the [NetObserv documentation](https://github.com/containers/kubernetes-mcp-server/blob/main/docs/NETOBSERV.md) for more details. |         |
+| observability/metrics | Query explicitly configured Prometheus and Alertmanager endpoints with query safety guardrails.                                                                                                                                         |         |
+| tekton                | Tekton pipeline management tools for Pipelines, PipelineRuns, Tasks, TaskRuns, and troubleshooting.                                                                                                                                     |         |
 
 <!-- AVAILABLE-TOOLSETS-END -->
 
@@ -754,6 +755,22 @@ Set `redact_secrets` to protect Secret values returned by generic resource tools
 ```toml
 redact_secrets = "opaque"
 ```
+
+### Observability Metrics
+
+The optional `observability/metrics` toolset queries explicitly configured Prometheus or Thanos and Alertmanager endpoints. It is disabled by default, has query guardrails enabled by default, and does not use OpenShift route discovery.
+
+```toml
+toolsets = ["core", "config", "observability/metrics"]
+
+[toolset_configs."observability/metrics"]
+prometheus_url = "https://prometheus.example.internal"
+alertmanager_url = "https://alertmanager.example.internal"
+auth_mode = "header"
+guardrails = "all"
+```
+
+`prometheus_url` is required. Use `auth_mode = "header"` to forward the incoming MCP authorization header, or `auth_mode = "kubeconfig"` for local bearer-token authentication. When `require_tls` is enabled, configured endpoints must use HTTPS.
 
 By default, Helm install and uninstall operations wait up to five minutes. Set `timeout` below an MCP client's tool-call timeout so the client receives Helm's diagnostic error instead of a transport timeout. Set `wait = false` to return after creating release resources and poll their readiness separately. `wait` and `uninstall_wait` are independent so non-blocking installs do not require racing release deletion during an immediate reinstall.
 
