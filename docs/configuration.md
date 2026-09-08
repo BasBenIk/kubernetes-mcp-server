@@ -720,6 +720,9 @@ token = "your-kiali-token"
 [toolset_configs.helm]
 allowed_registries = ["oci://ghcr.io/myorg", "https://charts.example.com"]
 storage_driver = "configmap"
+timeout = "4m"
+wait = false
+uninstall_wait = true
 ```
 
 #### Helm Configuration
@@ -728,6 +731,9 @@ storage_driver = "configmap"
 |-------|------|-------------|
 | `allowed_registries` | string array | Optional list of permitted chart registry URL prefixes. Only `oci://` and `https://` schemes are accepted. |
 | `storage_driver` | string | Optional default storage driver for Helm operations. Supported values: `secret` (default) and `configmap`. |
+| `timeout` | string | Optional timeout for Helm install and uninstall operations, expressed as a positive Go duration such as `4m` or `90s`. Defaults to `5m`. |
+| `wait` | bool | Optional. Whether `helm_install` waits for resources to become ready. Defaults to `true`. |
+| `uninstall_wait` | bool | Optional. Whether `helm_uninstall` waits for resources to be deleted. Defaults to `true`. |
 
 The Helm toolset supports an optional `allowed_registries` allowlist to restrict which registries
 `helm_install` can fetch charts from.
@@ -739,6 +745,8 @@ The Helm toolset supports an optional `allowed_registries` allowlist to restrict
 - When `allowed_registries` **is configured**, chart references must be URL-based and prefix-match an entry in the list. Non-URL references (local paths, repo/chart names) are rejected.
 
 **Accepted risk:** bare filesystem paths (e.g. `/absolute/path`, `./relative/path`) are not blocked when no allowlist is configured, because they are indistinguishable from Helm repository references at the string level. When the server runs in a container, the blast radius is limited to the container filesystem. To fully restrict chart sources, configure `allowed_registries`.
+
+By default, Helm install and uninstall operations wait up to five minutes. Set `timeout` below an MCP client's tool-call timeout so the client receives Helm's diagnostic error instead of a transport timeout. Set `wait = false` to return after creating release resources and poll their readiness separately. `wait` and `uninstall_wait` are independent so non-blocking installs do not require racing release deletion during an immediate reinstall.
 
 Refer to individual toolset documentation for available options:
 - [Kiali Configuration](KIALI.md)

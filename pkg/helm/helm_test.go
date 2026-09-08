@@ -5,9 +5,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/suite"
+	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/release"
 	helmtime "helm.sh/helm/v3/pkg/time"
+	"k8s.io/utils/ptr"
 )
 
 type HelmSuite struct {
@@ -213,6 +215,29 @@ func (s *HelmSuite) TestValidateChartReference() {
 			s.Error(err)
 			s.Contains(err.Error(), "http:// scheme is blocked")
 		})
+	})
+}
+
+func (s *HelmSuite) TestConfiguredActions() {
+	s.Run("install uses configured blocking behavior", func() {
+		helm := &Helm{config: &Config{Timeout: "90s", Wait: ptr.To(false)}}
+		install := helm.newInstall(&action.Configuration{})
+		s.False(install.Wait)
+		s.Equal(90*time.Second, install.Timeout)
+		s.False(install.DryRun)
+	})
+	s.Run("uninstall uses its independent wait setting", func() {
+		helm := &Helm{config: &Config{Timeout: "90s", Wait: ptr.To(false), UninstallWait: ptr.To(true)}}
+		uninstall := helm.newUninstall(&action.Configuration{})
+		s.True(uninstall.Wait)
+		s.Equal(90*time.Second, uninstall.Timeout)
+		s.True(uninstall.IgnoreNotFound)
+	})
+	s.Run("actions preserve historical defaults", func() {
+		helm := &Helm{}
+		s.True(helm.newInstall(&action.Configuration{}).Wait)
+		s.True(helm.newUninstall(&action.Configuration{}).Wait)
+		s.Equal(DefaultTimeout, helm.newInstall(&action.Configuration{}).Timeout)
 	})
 }
 

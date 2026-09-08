@@ -2,6 +2,7 @@ package helm
 
 import (
 	"testing"
+	"time"
 
 	"github.com/containers/kubernetes-mcp-server/internal/test"
 	"github.com/containers/kubernetes-mcp-server/pkg/config"
@@ -102,6 +103,36 @@ func (s *ConfigSuite) TestValidate() {
 		s.Error(err)
 		s.Contains(err.Error(), "unsupported Helm storage driver")
 	})
+	s.Run("accepts a positive timeout", func() {
+		s.NoError((&Config{Timeout: "4m"}).Validate())
+	})
+	s.Run("rejects a malformed timeout", func() {
+		err := (&Config{Timeout: "four minutes"}).Validate()
+		s.Error(err)
+		s.Contains(err.Error(), "invalid Helm timeout")
+	})
+	s.Run("rejects a non-positive timeout", func() {
+		err := (&Config{Timeout: "0s"}).Validate()
+		s.Error(err)
+		s.Contains(err.Error(), "must be positive")
+	})
+}
+
+func (s *ConfigSuite) TestBlockingBehaviorDefaults() {
+	s.Run("uses historical defaults when configuration is absent", func() {
+		var cfg *Config
+		s.Equal(DefaultTimeout, cfg.TimeoutOrDefault())
+		s.True(cfg.WaitOrDefault())
+		s.True(cfg.UninstallWaitOrDefault())
+	})
+	s.Run("uses configured values independently", func() {
+		wait := false
+		uninstallWait := true
+		cfg := &Config{Timeout: "90s", Wait: &wait, UninstallWait: &uninstallWait}
+		s.Equal(90*time.Second, cfg.TimeoutOrDefault())
+		s.False(cfg.WaitOrDefault())
+		s.True(cfg.UninstallWaitOrDefault())
+	})
 }
 
 func (s *ConfigSuite) TestParser() {
@@ -160,6 +191,21 @@ func (s *ConfigSuite) TestParser() {
 		`))
 		s.Error(err)
 		s.Contains(err.Error(), "unsupported Helm storage driver")
+	})
+	s.Run("parses blocking behavior from TOML", func() {
+		cfg := test.Must(config.ReadToml([]byte(`
+			[toolset_configs.helm]
+			timeout = "90s"
+			wait = false
+			uninstall_wait = true
+		`)))
+		helmCfg, ok := cfg.GetToolsetConfig("helm")
+		s.Require().True(ok)
+		hc, ok := helmCfg.(*Config)
+		s.Require().True(ok)
+		s.Equal(90*time.Second, hc.TimeoutOrDefault())
+		s.False(hc.WaitOrDefault())
+		s.True(hc.UninstallWaitOrDefault())
 	})
 }
 
