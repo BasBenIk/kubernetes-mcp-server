@@ -83,6 +83,8 @@ func EnvTest() *envtest.Environment {
 				},
 			},
 			CRDs: []*apiextensionsv1spec.CustomResourceDefinition{
+				// Argo CD
+				CRD("argoproj.io", "v1alpha1", "applications", "Application", "application", true),
 				// OpenShift
 				CRD("project.openshift.io", "v1", "projects", "Project", "project", false),
 				CRD("route.openshift.io", "v1", "routes", "Route", "route", true),

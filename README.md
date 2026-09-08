@@ -287,6 +287,7 @@ The following sets of tools are available (toolsets marked with ✓ in the Defau
 
 | Toolset   | Description                                                                                                                                                                                                                             | Default |
 |-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
+| argocd    | Read-only Argo CD Application fleet status and drift diagnostics.                                                                                                                                                                       |         |
 | config    | View and manage the current local Kubernetes configuration (kubeconfig)                                                                                                                                                                 | ✓       |
 | core      | Most common tools for Kubernetes management (Pods, Generic Resources, Events, etc.)                                                                                                                                                     | ✓       |
 | helm      | Tools for managing Helm charts and releases                                                                                                                                                                                             |         |
@@ -303,6 +304,16 @@ The following sets of tools are available (toolsets marked with ✓ in the Defau
 In case multi-cluster support is enabled (default) and you have access to multiple clusters, all applicable tools will include an additional `context` argument to specify the Kubernetes context (cluster) to use for that operation.
 
 <!-- AVAILABLE-TOOLSETS-TOOLS-START -->
+
+<details>
+
+<summary>argocd</summary>
+
+- **argocd_applications_status** - Summarize Argo CD Application fleet health and sync state. Use this to quickly identify drifted or unhealthy applications without retrieving full reconciliation histories.
+  - `labelSelector` (`string`) - Optional Kubernetes label selector for Applications.
+  - `namespace` (`string`) - Namespace to inspect. Omit to inspect accessible Applications in all namespaces.
+
+</details>
 
 <details>
 

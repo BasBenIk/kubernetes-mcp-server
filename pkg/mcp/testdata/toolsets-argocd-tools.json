@@ -1,0 +1,28 @@
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "Argo CD: Application Fleet Status"
+    },
+    "description": "Summarize Argo CD Application fleet health and sync state. Use this to quickly identify drifted or unhealthy applications without retrieving full reconciliation histories.",
+    "inputSchema": {
+      "properties": {
+        "labelSelector": {
+          "description": "Optional Kubernetes label selector for Applications.",
+          "pattern": "^([/_.\\-A-Za-z0-9=, ()!])+$",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Namespace to inspect. Omit to inspect accessible Applications in all namespaces.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "name": "argocd_applications_status",
+    "title": "Argo CD: Application Fleet Status"
+  }
+]
