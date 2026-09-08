@@ -241,6 +241,26 @@ func (s *HelmSuite) TestConfiguredActions() {
 	})
 }
 
+func (s *HelmSuite) TestSimplifyHistory() {
+	first := helmtime.Time{Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	last := helmtime.Time{Time: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)}
+	result := simplifyHistory([]*release.Release{{
+		Name:      "example",
+		Namespace: "default",
+		Version:   2,
+		Info: &release.Info{
+			Status:        release.StatusSuperseded,
+			Description:   "Upgrade complete",
+			FirstDeployed: first,
+			LastDeployed:  last,
+		},
+	}})
+	s.Require().Len(result, 1)
+	s.Equal("Upgrade complete", result[0]["description"])
+	s.Equal(first.Format(time.RFC1123Z), result[0]["firstDeployed"])
+	s.Equal(last.Format(time.RFC1123Z), result[0]["lastDeployed"])
+}
+
 func TestHelm(t *testing.T) {
 	suite.Run(t, new(HelmSuite))
 }

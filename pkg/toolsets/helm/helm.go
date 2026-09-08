@@ -92,6 +92,37 @@ func initHelm() []api.ServerTool {
 				OpenWorldHint:   ptr.To(true),
 			},
 		}, Handler: helmUninstall},
+		{Tool: api.Tool{
+			Name:        "helm_history",
+			Description: "Get the recent revision history for a Helm release. Use this to investigate failed upgrades, rollbacks, and changes in release status.",
+			InputSchema: &jsonschema.Schema{
+				Type: "object",
+				Properties: map[string]*jsonschema.Schema{
+					"name": {
+						Type:        "string",
+						Description: "Name of the Helm release.",
+					},
+					"namespace": {
+						Type:        "string",
+						Description: "Namespace of the Helm release. Uses the configured namespace when omitted.",
+					},
+					"max": {
+						Type:        "integer",
+						Description: "Maximum number of newest revisions to return. Defaults to 10 and cannot exceed 256.",
+						Minimum:     ptr.To(float64(1)),
+						Maximum:     ptr.To(float64(256)),
+					},
+				},
+				Required: []string{"name"},
+			},
+			Annotations: api.ToolAnnotations{
+				Title:           "Helm: History",
+				ReadOnlyHint:    ptr.To(true),
+				DestructiveHint: ptr.To(false),
+				IdempotentHint:  ptr.To(true),
+				OpenWorldHint:   ptr.To(true),
+			},
+		}, Handler: helmHistory},
 	}
 }
 
@@ -159,4 +190,22 @@ func helmUninstall(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
 		return api.NewToolCallResult("", fmt.Errorf("failed to uninstall helm chart '%s': %w", name, err)), nil
 	}
 	return api.NewToolCallResult(ret, err), nil
+}
+
+func helmHistory(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
+	p := api.WrapParams(params)
+	name := p.RequiredString("name")
+	namespace := p.OptionalString("namespace", "")
+	max := p.OptionalInt64("max", 10)
+	if err := p.Err(); err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to get Helm history: %w", err)), nil
+	}
+	if max < 1 || max > 256 {
+		return api.NewToolCallResult("", fmt.Errorf("failed to get Helm history: max must be between 1 and 256")), nil
+	}
+	ret, err := newHelmClient(params).History(params.Context, name, namespace, int(max))
+	if err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to get Helm history for release %q: %w", name, err)), nil
+	}
+	return api.NewToolCallResult(ret, nil), nil
 }

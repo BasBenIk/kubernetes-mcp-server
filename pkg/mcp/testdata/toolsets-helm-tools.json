@@ -2,6 +2,40 @@
   {
     "annotations": {
       "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "Helm: History"
+    },
+    "description": "Get the recent revision history for a Helm release. Use this to investigate failed upgrades, rollbacks, and changes in release status.",
+    "inputSchema": {
+      "properties": {
+        "max": {
+          "description": "Maximum number of newest revisions to return. Defaults to 10 and cannot exceed 256.",
+          "maximum": 256,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Name of the Helm release.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Namespace of the Helm release. Uses the configured namespace when omitted.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "name": "helm_history",
+    "title": "Helm: History"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
       "idempotentHint": false,
       "openWorldHint": true,
       "readOnlyHint": false,

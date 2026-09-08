@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"flag"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -240,6 +241,38 @@ func (s *HelmSuite) TestHelmListDenied() {
 			expectedMessage := ": resource not allowed: /v1, Kind=Secret"
 			s.Truef(strings.HasSuffix(msg, expectedMessage), "expected descriptive error '%s', got %v", expectedMessage, msg)
 		})
+	})
+}
+
+func (s *HelmSuite) TestHelmHistory() {
+	kc := kubernetes.NewForConfigOrDie(test.EnvTestRestConfig())
+	for revision := 1; revision <= 3; revision++ {
+		payload := fmt.Sprintf(`{"name":"release-history","version":%d,"info":{"status":"superseded","description":"revision %d"}}`, revision, revision)
+		_, err := kc.CoreV1().Secrets("default").Create(s.T().Context(), &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   fmt.Sprintf("sh.helm.release.v1.release-history.v%d", revision),
+				Labels: map[string]string{"owner": "helm", "name": "release-history", "version": strconv.Itoa(revision)},
+			},
+			Data: map[string][]byte{"release": []byte(base64.StdEncoding.EncodeToString([]byte(payload)))},
+		}, metav1.CreateOptions{})
+		s.Require().NoError(err)
+	}
+	s.InitMcpClient()
+	s.Run("returns newest revisions in ascending order", func() {
+		result, err := s.CallTool("helm_history", map[string]interface{}{"name": "release-history", "max": 2})
+		s.Require().NoError(err)
+		s.False(result.IsError)
+		var decoded []map[string]interface{}
+		s.Require().NoError(yaml.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &decoded))
+		s.Require().Len(decoded, 2)
+		s.Equal(float64(2), decoded[0]["revision"])
+		s.Equal(float64(3), decoded[1]["revision"])
+	})
+	s.Run("rejects an out-of-range max", func() {
+		result, err := s.CallTool("helm_history", map[string]interface{}{"name": "release-history", "max": 257})
+		s.Require().NoError(err)
+		s.True(result.IsError)
+		s.Contains(result.Content[0].(*mcp.TextContent).Text, "between 1 and 256")
 	})
 }
 

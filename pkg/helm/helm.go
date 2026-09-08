@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -107,6 +108,26 @@ func (h *Helm) Uninstall(ctx context.Context, name string, namespace string) (st
 	return fmt.Sprintf("Uninstalled release %s %s", uninstalledRelease.Release.Name, uninstalledRelease.Info), nil
 }
 
+func (h *Helm) History(ctx context.Context, name, namespace string, max int) (string, error) {
+	cfg, err := h.newAction(ctx, h.kubernetes.NamespaceOrDefault(namespace), false)
+	if err != nil {
+		return "", err
+	}
+	releases, err := action.NewHistory(cfg).Run(name)
+	if err != nil {
+		return "", err
+	}
+	sort.Slice(releases, func(i, j int) bool { return releases[i].Version < releases[j].Version })
+	if len(releases) > max {
+		releases = releases[len(releases)-max:]
+	}
+	ret, err := yaml.Marshal(simplifyHistory(releases))
+	if err != nil {
+		return "", err
+	}
+	return string(ret), nil
+}
+
 func (h *Helm) newInstall(cfg *action.Configuration) *action.Install {
 	install := action.NewInstall(cfg)
 	install.Wait = h.config.WaitOrDefault()
@@ -203,6 +224,22 @@ func simplify(release ...*release.Release) []map[string]interface{} {
 			if !r.Info.LastDeployed.IsZero() {
 				ret[i]["lastDeployed"] = r.Info.LastDeployed.Format(time.RFC1123Z)
 			}
+		}
+	}
+	return ret
+}
+
+func simplifyHistory(releases []*release.Release) []map[string]interface{} {
+	ret := simplify(releases...)
+	for i, r := range releases {
+		if r.Info == nil {
+			continue
+		}
+		if r.Info.Description != "" {
+			ret[i]["description"] = r.Info.Description
+		}
+		if !r.Info.FirstDeployed.IsZero() {
+			ret[i]["firstDeployed"] = r.Info.FirstDeployed.Format(time.RFC1123Z)
 		}
 	}
 	return ret

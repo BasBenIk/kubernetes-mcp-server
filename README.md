@@ -442,6 +442,11 @@ In case multi-cluster support is enabled (default) and you have access to multip
   - `name` (`string`) **(required)** - Name of the Helm release to uninstall
   - `namespace` (`string`) - Namespace to uninstall the Helm release from (Optional, current namespace if not provided)
 
+- **helm_history** - Get the recent revision history for a Helm release. Use this to investigate failed upgrades, rollbacks, and changes in release status.
+  - `max` (`integer`) - Maximum number of newest revisions to return. Defaults to 10 and cannot exceed 256.
+  - `name` (`string`) **(required)** - Name of the Helm release.
+  - `namespace` (`string`) - Namespace of the Helm release. Uses the configured namespace when omitted.
+
 </details>
 
 <details>
