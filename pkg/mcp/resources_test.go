@@ -15,6 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -650,6 +651,27 @@ func (s *ResourcesSuite) TestResourcesCreateOrUpdate() {
 			_, hasStatus := raw.Object["status"]
 			s.Falsef(hasStatus, "status should not be present on the persisted resource")
 		})
+	})
+}
+
+func (s *ResourcesSuite) TestResourcesCreateOrUpdateDryRun() {
+	s.InitMcpClient()
+	client := kubernetes.NewForConfigOrDie(test.EnvTestRestConfig())
+	manifest := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: dry-run-configmap\n  namespace: default\ndata:\n  value: prospective\n"
+
+	s.Run("returns the prospective resource without persisting it", func() {
+		result, err := s.CallTool("resources_create_or_update", map[string]interface{}{"resource": manifest, "dry_run": true})
+		s.Require().NoError(err)
+		s.False(result.IsError)
+		s.Contains(result.Content[0].(*mcp.TextContent).Text, "dry-run validation")
+		_, err = client.CoreV1().ConfigMaps("default").Get(s.T().Context(), "dry-run-configmap", metav1.GetOptions{})
+		s.True(errors.IsNotFound(err))
+	})
+	s.Run("rejects a non-boolean dry_run value", func() {
+		result, err := s.CallTool("resources_create_or_update", map[string]interface{}{"resource": manifest, "dry_run": "true"})
+		s.Require().NoError(err)
+		s.True(result.IsError)
+		s.Contains(result.Content[0].(*mcp.TextContent).Text, "dry_run")
 	})
 }
 

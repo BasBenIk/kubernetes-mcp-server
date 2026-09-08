@@ -56,7 +56,7 @@ func (c *Core) ResourcesGet(ctx context.Context, gvk *schema.GroupVersionKind, n
 	return c.DynamicClient().Resource(*gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 }
 
-func (c *Core) ResourcesCreateOrUpdate(ctx context.Context, resource string) ([]*unstructured.Unstructured, error) {
+func (c *Core) ResourcesCreateOrUpdate(ctx context.Context, resource string, dryRun bool) ([]*unstructured.Unstructured, error) {
 	separator := regexp.MustCompile(`\r?\n---\r?\n`)
 	resources := separator.Split(resource, -1)
 	var parsedResources []*unstructured.Unstructured
@@ -71,7 +71,7 @@ func (c *Core) ResourcesCreateOrUpdate(ctx context.Context, resource string) ([]
 
 		parsedResources = append(parsedResources, &obj)
 	}
-	return c.resourcesCreateOrUpdate(ctx, parsedResources)
+	return c.resourcesCreateOrUpdate(ctx, parsedResources, dryRun)
 }
 
 func (c *Core) ResourcesDelete(ctx context.Context, gvk *schema.GroupVersionKind, namespace, name string, gracePeriodSeconds *int64) error {
@@ -178,7 +178,7 @@ func (c *Core) resourcesListAsTable(ctx context.Context, gvk *schema.GroupVersio
 	return &unstructured.Unstructured{Object: unstructuredObject}, err
 }
 
-func (c *Core) resourcesCreateOrUpdate(ctx context.Context, resources []*unstructured.Unstructured) ([]*unstructured.Unstructured, error) {
+func (c *Core) resourcesCreateOrUpdate(ctx context.Context, resources []*unstructured.Unstructured, dryRun bool) ([]*unstructured.Unstructured, error) {
 	for i, obj := range resources {
 		gvk := obj.GroupVersionKind()
 		gvr, rErr := c.resourceFor(&gvk)
@@ -191,15 +191,19 @@ func (c *Core) resourcesCreateOrUpdate(ctx context.Context, resources []*unstruc
 		if namespaced, nsErr := c.isNamespaced(&gvk); nsErr == nil && namespaced {
 			namespace = c.NamespaceOrDefault(namespace)
 		}
-		resources[i], rErr = c.DynamicClient().Resource(*gvr).Namespace(namespace).Apply(ctx, obj.GetName(), obj, metav1.ApplyOptions{
+		options := metav1.ApplyOptions{
 			FieldManager: version.BinaryName,
 			Force:        true,
-		})
+		}
+		if dryRun {
+			options.DryRun = []string{metav1.DryRunAll}
+		}
+		resources[i], rErr = c.DynamicClient().Resource(*gvr).Namespace(namespace).Apply(ctx, obj.GetName(), obj, options)
 		if rErr != nil {
 			return nil, rErr
 		}
 		// Clear the cache to ensure the next operation is performed on the latest exposed APIs (will change after the CRD creation)
-		if gvk.Kind == "CustomResourceDefinition" {
+		if gvk.Kind == "CustomResourceDefinition" && !dryRun {
 			c.RESTMapper().Reset()
 		}
 	}

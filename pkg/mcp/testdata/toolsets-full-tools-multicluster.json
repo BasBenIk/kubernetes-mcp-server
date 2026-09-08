@@ -582,6 +582,10 @@
           "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
+        "dry_run": {
+          "description": "If true, perform server-side apply validation and admission processing without persisting the resource.",
+          "type": "boolean"
+        },
         "resource": {
           "description": "Complete YAML or JSON representation of the Kubernetes resource (full desired state, not a partial patch). Include apiVersion, kind, metadata, and the full spec.",
           "type": "string"

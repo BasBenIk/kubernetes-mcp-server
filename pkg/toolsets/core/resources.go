@@ -113,6 +113,10 @@ func initResources(p api.FilteringProvider) []api.ServerTool {
 						Type:        "string",
 						Description: "Complete YAML or JSON representation of the Kubernetes resource (full desired state, not a partial patch). Include apiVersion, kind, metadata, and the full spec.",
 					},
+					"dry_run": {
+						Type:        "boolean",
+						Description: "If true, perform server-side apply validation and admission processing without persisting the resource.",
+					},
 				},
 				Required: []string{"resource"},
 			},
@@ -333,14 +337,22 @@ func resourcesCreateOrUpdate(params api.ToolHandlerParams) (*api.ToolCallResult,
 	if !ok {
 		return api.NewToolCallResult("", fmt.Errorf("resource is not a string")), nil
 	}
+	p := api.WrapParams(params)
+	dryRun := p.OptionalBool("dry_run", false)
+	if err := p.Err(); err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to create or update resources: %w", err)), nil
+	}
 
-	resources, err := kubernetes.NewCore(params).ResourcesCreateOrUpdate(params, r)
+	resources, err := kubernetes.NewCore(params).ResourcesCreateOrUpdate(params, r, dryRun)
 	if err != nil {
 		return api.NewToolCallResult("", fmt.Errorf("failed to create or update resources: %w", err)), nil
 	}
 	marshalledYaml, err := output.MarshalYaml(resources)
 	if err != nil {
 		err = fmt.Errorf("failed to create or update resources: %w", err)
+	}
+	if dryRun {
+		return api.NewToolCallResult("# The following resources (YAML) passed server-side dry-run validation and were not persisted\n"+marshalledYaml, err), nil
 	}
 	return api.NewToolCallResult("# The following resources (YAML) have been created or updated successfully\n"+marshalledYaml, err), nil
 }
