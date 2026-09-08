@@ -1,10 +1,12 @@
 package kubernetes
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -105,4 +107,40 @@ func (s *ResolveContainerSuite) TestResolveContainer() {
 
 func TestResolveContainer(t *testing.T) {
 	suite.Run(t, new(ResolveContainerSuite))
+}
+
+type ExtractKubernetesErrorSuite struct {
+	suite.Suite
+}
+
+func (s *ExtractKubernetesErrorSuite) TestExtractKubernetesError() {
+	s.Run("returns ordinary errors unchanged", func() {
+		original := fmt.Errorf("connection refused")
+		s.Equal(original, extractKubernetesError(original))
+	})
+	s.Run("returns StatusError with a message unchanged", func() {
+		err := &apierrors.StatusError{ErrStatus: metav1.Status{Message: "pods \"example\" not found", Code: 404}}
+		s.Equal(err, extractKubernetesError(err))
+	})
+	s.Run("extracts the first API cause when the message is empty", func() {
+		err := &apierrors.StatusError{ErrStatus: metav1.Status{
+			Reason: metav1.StatusReasonBadRequest,
+			Code:   400,
+			Details: &metav1.StatusDetails{Causes: []metav1.StatusCause{
+				{Message: ""},
+				{Message: `container "app" in pod "example" not found`},
+			}},
+		}}
+		result := extractKubernetesError(err)
+		s.Contains(result.Error(), "BadRequest")
+		s.Contains(result.Error(), `container "app" in pod "example" not found`)
+	})
+	s.Run("uses status reason and code when no API cause is available", func() {
+		err := &apierrors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonBadRequest, Code: 400}}
+		s.Equal("BadRequest (HTTP 400)", extractKubernetesError(err).Error())
+	})
+}
+
+func TestExtractKubernetesError(t *testing.T) {
+	suite.Run(t, new(ExtractKubernetesErrorSuite))
 }
