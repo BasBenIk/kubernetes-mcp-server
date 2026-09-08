@@ -56,7 +56,7 @@ func validateMetricsConfig(params api.ToolHandlerParams) error {
 	if !ok || metricsConfig.PrometheusURL == "" {
 		return errors.New("observability metrics prometheus_url is required")
 	}
-	if !params.BaseConfig.IsRequireTLS() {
+	if !params.IsRequireTLS() {
 		return nil
 	}
 	if metricsConfig.Insecure {

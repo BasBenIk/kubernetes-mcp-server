@@ -72,7 +72,7 @@ func (r *Redactor) redactMap(object map[string]interface{}, field string) {
 	for name, value := range values {
 		if r.mode == "hashed" {
 			mac := hmac.New(sha256.New, r.key)
-			_, _ = mac.Write([]byte(fmt.Sprint(value)))
+			_, _ = fmt.Fprint(mac, value)
 			values[name] = fmt.Sprintf("[REDACTED:gen_%s:%s]", r.generation, hex.EncodeToString(mac.Sum(nil))[:16])
 			continue
 		}
