@@ -747,6 +747,14 @@ The Helm toolset supports an optional `allowed_registries` allowlist to restrict
 
 **Accepted risk:** bare filesystem paths (e.g. `/absolute/path`, `./relative/path`) are not blocked when no allowlist is configured, because they are indistinguishable from Helm repository references at the string level. When the server runs in a container, the blast radius is limited to the container filesystem. To fully restrict chart sources, configure `allowed_registries`.
 
+### Secret Redaction
+
+Set `redact_secrets` to protect Secret values returned by generic resource tools. `opaque` replaces values with `[REDACTED]`; `hashed` provides an in-memory, per-process HMAC marker so equal values can be correlated during one server run. Both modes redact `data`, `stringData`, and the `kubectl.kubernetes.io/last-applied-configuration` annotation while retaining Secret metadata and key names. This applies to generic resource get, non-table list, and apply responses; it does not redact arbitrary logs, ConfigMaps, or custom resources.
+
+```toml
+redact_secrets = "opaque"
+```
+
 By default, Helm install and uninstall operations wait up to five minutes. Set `timeout` below an MCP client's tool-call timeout so the client receives Helm's diagnostic error instead of a transport timeout. Set `wait = false` to return after creating release resources and poll their readiness separately. `wait` and `uninstall_wait` are independent so non-blocking installs do not require racing release deletion during an immediate reinstall.
 
 Refer to individual toolset documentation for available options:

@@ -230,6 +230,17 @@ func initResources(p api.FilteringProvider) []api.ServerTool {
 	}
 }
 
+type secretRedactionConfig interface {
+	GetRedactSecrets() string
+}
+
+func newCore(params api.ToolHandlerParams) *kubernetes.Core {
+	if config, ok := params.BaseConfig.(secretRedactionConfig); ok {
+		return kubernetes.NewCore(params, kubernetes.WithSecretRedaction(config.GetRedactSecrets()))
+	}
+	return kubernetes.NewCore(params)
+}
+
 type apiResourcesListResult struct {
 	Resources []kubernetes.APIResourceInfo `json:"resources"`
 	Warning   string                       `json:"warning,omitempty"`
@@ -299,7 +310,7 @@ func resourcesList(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
 		return api.NewToolCallResult("", fmt.Errorf("namespace is not a string")), nil
 	}
 
-	ret, err := kubernetes.NewCore(params).ResourcesList(params, gvk, ns, resourceListOptions)
+	ret, err := newCore(params).ResourcesList(params, gvk, ns, resourceListOptions)
 	if err != nil {
 		return api.NewToolCallResult("", fmt.Errorf("failed to list resources: %w", err)), nil
 	}
@@ -342,7 +353,7 @@ func resourcesGet(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
 		return api.NewToolCallResult("", fmt.Errorf("failed to get resource: %w", err)), nil
 	}
 
-	ret, err := kubernetes.NewCore(params).ResourcesGet(params, gvk, ns, n)
+	ret, err := newCore(params).ResourcesGet(params, gvk, ns, n)
 	if err != nil {
 		return api.NewToolCallResult("", fmt.Errorf("failed to get resource: %w", err)), nil
 	}
@@ -383,7 +394,7 @@ func resourcesCreateOrUpdate(params api.ToolHandlerParams) (*api.ToolCallResult,
 		return api.NewToolCallResult("", fmt.Errorf("failed to create or update resources: %w", err)), nil
 	}
 
-	resources, err := kubernetes.NewCore(params).ResourcesCreateOrUpdate(params, r, dryRun)
+	resources, err := newCore(params).ResourcesCreateOrUpdate(params, r, dryRun)
 	if err != nil {
 		return api.NewToolCallResult("", fmt.Errorf("failed to create or update resources: %w", err)), nil
 	}

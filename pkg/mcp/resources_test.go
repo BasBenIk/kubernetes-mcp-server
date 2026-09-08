@@ -708,6 +708,43 @@ func (s *ResourcesSuite) TestResourcesCreateOrUpdateDryRun() {
 	})
 }
 
+func (s *ResourcesSuite) TestSecretRedaction() {
+	s.Require().NoError(toml.Unmarshal([]byte(`redact_secrets = "opaque"`), s.Cfg))
+	s.InitMcpClient()
+	client := kubernetes.NewForConfigOrDie(test.EnvTestRestConfig())
+	_, err := client.CoreV1().Secrets("default").Create(s.T().Context(), &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "redacted-secret", Labels: map[string]string{"redaction": "test"}, Annotations: map[string]string{"kubectl.kubernetes.io/last-applied-configuration": "password: plaintext", "safe": "value"}},
+		Data:       map[string][]byte{"password": []byte("super-secret")},
+	}, metav1.CreateOptions{})
+	s.Require().NoError(err)
+	s.Run("redacts generic resource get output", func() {
+		result, err := s.CallTool("resources_get", map[string]interface{}{"apiVersion": "v1", "kind": "Secret", "namespace": "default", "name": "redacted-secret"})
+		s.Require().NoError(err)
+		s.False(result.IsError)
+		s.NotContains(result.Content[0].(*mcp.TextContent).Text, "super-secret")
+		s.NotContains(result.Content[0].(*mcp.TextContent).Text, "password: plaintext")
+		structured := result.StructuredContent.(map[string]interface{})
+		data := structured["data"].(map[string]interface{})
+		s.Equal("[REDACTED]", data["password"])
+	})
+	s.Run("redacts generic resource list output", func() {
+		result, err := s.CallTool("resources_list", map[string]interface{}{"apiVersion": "v1", "kind": "Secret", "namespace": "default", "labelSelector": "redaction=test"})
+		s.Require().NoError(err)
+		s.False(result.IsError)
+		s.NotContains(result.Content[0].(*mcp.TextContent).Text, "super-secret")
+	})
+	s.Run("redacts the response but preserves the apply payload", func() {
+		manifest := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: apply-redacted-secret\n  namespace: default\nstringData:\n  password: super-secret\n"
+		result, err := s.CallTool("resources_create_or_update", map[string]interface{}{"resource": manifest})
+		s.Require().NoError(err)
+		s.False(result.IsError)
+		s.NotContains(result.Content[0].(*mcp.TextContent).Text, "super-secret")
+		secret, err := client.CoreV1().Secrets("default").Get(s.T().Context(), "apply-redacted-secret", metav1.GetOptions{})
+		s.Require().NoError(err)
+		s.Equal("super-secret", string(secret.Data["password"]))
+	})
+}
+
 func (s *ResourcesSuite) TestResourcesCreateOrUpdateForcesSSA() {
 	s.InitMcpClient()
 	dynamicClient := dynamic.NewForConfigOrDie(test.EnvTestRestConfig())

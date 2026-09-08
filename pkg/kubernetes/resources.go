@@ -40,7 +40,12 @@ func (c *Core) ResourcesList(ctx context.Context, gvk *schema.GroupVersionKind, 
 	if options.AsTable {
 		return c.resourcesListAsTable(ctx, gvk, gvr, namespace, options)
 	}
-	return c.DynamicClient().Resource(*gvr).Namespace(namespace).List(ctx, options.ListOptions)
+	result, err := c.DynamicClient().Resource(*gvr).Namespace(namespace).List(ctx, options.ListOptions)
+	if err != nil {
+		return nil, err
+	}
+	c.redactor.ApplyList(result)
+	return result, nil
 }
 
 func (c *Core) ResourcesGet(ctx context.Context, gvk *schema.GroupVersionKind, namespace, name string) (*unstructured.Unstructured, error) {
@@ -53,7 +58,12 @@ func (c *Core) ResourcesGet(ctx context.Context, gvk *schema.GroupVersionKind, n
 	if namespaced, nsErr := c.isNamespaced(gvk); nsErr == nil && namespaced {
 		namespace = c.NamespaceOrDefault(namespace)
 	}
-	return c.DynamicClient().Resource(*gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	result, err := c.DynamicClient().Resource(*gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	c.redactor.Apply(result)
+	return result, nil
 }
 
 func (c *Core) ResourcesCreateOrUpdate(ctx context.Context, resource string, dryRun bool) ([]*unstructured.Unstructured, error) {
@@ -185,6 +195,10 @@ func (c *Core) resourcesCreateOrUpdate(ctx context.Context, resources []*unstruc
 		if rErr != nil {
 			return nil, rErr
 		}
+		// Apply may return the same object instance used by the dynamic client.
+		// Redact only a copy so presentation redaction can never affect persistence.
+		resources[i] = resources[i].DeepCopy()
+		c.redactor.Apply(resources[i])
 
 		namespace := obj.GetNamespace()
 		// If it's a namespaced resource and namespace wasn't provided, try to use the default configured one

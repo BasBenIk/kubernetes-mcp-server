@@ -739,6 +739,23 @@ func (s *ValidateSuite) TestClusterAuthMode() {
 	})
 }
 
+func (s *ValidateSuite) TestRedactSecrets() {
+	s.Run("accepts supported modes", func() {
+		for _, mode := range []string{"", "opaque", "hashed"} {
+			cfg := s.validConfig()
+			cfg.RedactSecrets = mode
+			s.NoError(cfg.Validate(s.T().Context()))
+		}
+	})
+	s.Run("rejects unsupported modes", func() {
+		cfg := s.validConfig()
+		cfg.RedactSecrets = "invalid"
+		err := cfg.Validate(s.T().Context())
+		s.Require().Error(err)
+		s.Contains(err.Error(), "redact_secrets")
+	})
+}
+
 func (s *ValidateSuite) TestMetricsPort() {
 	s.Run("metrics_port without port is rejected", func() {
 		cfg := s.validConfig()

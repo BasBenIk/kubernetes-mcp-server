@@ -40,6 +40,9 @@ type ToolOverride struct {
 // It allows to configure server specific settings and tools to be enabled or disabled.
 type StaticConfig struct {
 	DeniedResources []api.GroupVersionKind `toml:"denied_resources"`
+	// RedactSecrets controls Secret value redaction in generic resource outputs.
+	// Valid values are "", "opaque", and "hashed".
+	RedactSecrets string `toml:"redact_secrets,omitempty"`
 
 	LogLevel    int    `toml:"log_level,omitzero"`
 	LogFile     string `toml:"log_file,omitempty"`
@@ -420,6 +423,10 @@ func (c *StaticConfig) GetDeniedResources() []api.GroupVersionKind {
 	return c.DeniedResources
 }
 
+func (c *StaticConfig) GetRedactSecrets() string {
+	return c.RedactSecrets
+}
+
 func (c *StaticConfig) GetKubeConfigPath() string {
 	return c.KubeConfig
 }
@@ -562,6 +569,10 @@ func (c *StaticConfig) Validate(ctx context.Context) error {
 	c.StsFederatedTokenFile = strings.TrimSpace(c.StsFederatedTokenFile)
 	c.StsSubjectTokenType = strings.TrimSpace(c.StsSubjectTokenType)
 	c.StsRequestedTokenType = strings.TrimSpace(c.StsRequestedTokenType)
+	c.RedactSecrets = strings.TrimSpace(c.RedactSecrets)
+	if c.RedactSecrets != "" && c.RedactSecrets != "opaque" && c.RedactSecrets != "hashed" {
+		return fmt.Errorf("invalid redact_secrets %q: must be \"opaque\" or \"hashed\"", c.RedactSecrets)
+	}
 	if output.FromString(c.ListOutput) == nil {
 		return fmt.Errorf("invalid output name: %s, valid names are: %s", c.ListOutput, strings.Join(output.Names, ", "))
 	}
