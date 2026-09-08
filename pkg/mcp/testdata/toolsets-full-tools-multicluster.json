@@ -11,7 +11,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "kind": {
@@ -20,7 +20,8 @@
         }
       },
       "required": [
-        "kind"
+        "kind",
+        "context"
       ],
       "type": "object"
     },
@@ -76,7 +77,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "fieldSelector": {
@@ -89,6 +90,9 @@
           "type": "string"
         }
       },
+      "required": [
+        "context"
+      ],
       "type": "object"
     },
     "name": "events_list",
@@ -106,7 +110,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "fieldSelector": {
@@ -115,6 +119,9 @@
           "type": "string"
         }
       },
+      "required": [
+        "context"
+      ],
       "type": "object"
     },
     "name": "namespaces_list",
@@ -132,7 +139,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "name": {
@@ -152,7 +159,8 @@
       },
       "required": [
         "name",
-        "query"
+        "query",
+        "context"
       ],
       "type": "object"
     },
@@ -171,7 +179,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "name": {
@@ -180,7 +188,8 @@
         }
       },
       "required": [
-        "name"
+        "name",
+        "context"
       ],
       "type": "object"
     },
@@ -199,7 +208,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "label_selector": {
@@ -212,6 +221,9 @@
           "type": "string"
         }
       },
+      "required": [
+        "context"
+      ],
       "type": "object"
     },
     "name": "nodes_top",
@@ -229,7 +241,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "name": {
@@ -242,7 +254,8 @@
         }
       },
       "required": [
-        "name"
+        "name",
+        "context"
       ],
       "type": "object"
     },
@@ -272,7 +285,7 @@
           "type": "string"
         },
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "name": {
@@ -286,7 +299,8 @@
       },
       "required": [
         "name",
-        "command"
+        "command",
+        "context"
       ],
       "type": "object"
     },
@@ -305,7 +319,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "name": {
@@ -318,7 +332,8 @@
         }
       },
       "required": [
-        "name"
+        "name",
+        "context"
       ],
       "type": "object"
     },
@@ -337,7 +352,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "fieldSelector": {
@@ -351,6 +366,9 @@
           "type": "string"
         }
       },
+      "required": [
+        "context"
+      ],
       "type": "object"
     },
     "name": "pods_list",
@@ -368,7 +386,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "fieldSelector": {
@@ -387,7 +405,8 @@
         }
       },
       "required": [
-        "namespace"
+        "namespace",
+        "context"
       ],
       "type": "object"
     },
@@ -410,7 +429,7 @@
           "type": "string"
         },
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "name": {
@@ -433,7 +452,8 @@
         }
       },
       "required": [
-        "name"
+        "name",
+        "context"
       ],
       "type": "object"
     },
@@ -452,7 +472,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "image": {
@@ -473,7 +493,8 @@
         }
       },
       "required": [
-        "image"
+        "image",
+        "context"
       ],
       "type": "object"
     },
@@ -497,7 +518,7 @@
           "type": "boolean"
         },
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "label_selector": {
@@ -514,6 +535,9 @@
           "type": "string"
         }
       },
+      "required": [
+        "context"
+      ],
       "type": "object"
     },
     "name": "pods_top",
@@ -531,10 +555,13 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         }
       },
+      "required": [
+        "context"
+      ],
       "type": "object"
     },
     "name": "projects_list",
@@ -552,7 +579,7 @@
     "inputSchema": {
       "properties": {
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "resource": {
@@ -561,7 +588,8 @@
         }
       },
       "required": [
-        "resource"
+        "resource",
+        "context"
       ],
       "type": "object"
     },
@@ -584,7 +612,7 @@
           "type": "string"
         },
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "gracePeriodSeconds": {
@@ -607,7 +635,8 @@
       "required": [
         "apiVersion",
         "kind",
-        "name"
+        "name",
+        "context"
       ],
       "type": "object"
     },
@@ -630,7 +659,7 @@
           "type": "string"
         },
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "kind": {
@@ -649,7 +678,8 @@
       "required": [
         "apiVersion",
         "kind",
-        "name"
+        "name",
+        "context"
       ],
       "type": "object"
     },
@@ -672,7 +702,7 @@
           "type": "string"
         },
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "fieldSelector": {
@@ -696,7 +726,8 @@
       },
       "required": [
         "apiVersion",
-        "kind"
+        "kind",
+        "context"
       ],
       "type": "object"
     },
@@ -719,7 +750,7 @@
           "type": "string"
         },
         "context": {
-          "description": "Optional parameter selecting which context to run the tool in. Defaults to fake-context if not set",
+          "description": "Required parameter selecting which context to run the tool in",
           "type": "string"
         },
         "kind": {
@@ -742,7 +773,8 @@
       "required": [
         "apiVersion",
         "kind",
-        "name"
+        "name",
+        "context"
       ],
       "type": "object"
     },

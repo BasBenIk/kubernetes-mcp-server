@@ -42,10 +42,13 @@ func WithTargetParameter(defaultCluster, targetParameterName string, isMultiTarg
 		}
 
 		if isMultiTarget {
-			tool.Tool.InputSchema.Properties[targetParameterName] = createTargetProperty(
+			targetProperty := createTargetProperty(
 				defaultCluster,
 				targetParameterName,
 			)
+			targetProperty.Description = fmt.Sprintf("Required parameter selecting which %s to run the tool in", targetParameterName)
+			tool.Tool.InputSchema.Properties[targetParameterName] = targetProperty
+			tool.Tool.InputSchema.Required = append(tool.Tool.InputSchema.Required, targetParameterName)
 		}
 
 		return tool

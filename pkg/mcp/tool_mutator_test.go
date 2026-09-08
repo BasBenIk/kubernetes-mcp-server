@@ -162,7 +162,8 @@ func TestWithClusterParameter(t *testing.T) {
 			assert.True(t, exists, "cluster property should exist")
 			assert.NotNil(t, clusterProperty)
 			assert.Equal(t, "string", clusterProperty.Type)
-			assert.Contains(t, clusterProperty.Description, tt.defaultCluster)
+			assert.Contains(t, clusterProperty.Description, "Required parameter")
+			assert.Contains(t, result.Tool.InputSchema.Required, tt.targetParameterName)
 		})
 	}
 }
@@ -222,8 +223,10 @@ func (s *TargetParameterToolMutatorSuite) TestClusterAwareTool() {
 	})
 	s.Run("adds correct description", func() {
 		desc := tool.Tool.InputSchema.Properties["cluster"].Description
-		s.Contains(desc, "Optional parameter selecting which cluster to run the tool in", "Expected description to mention cluster selection")
-		s.Contains(desc, "Defaults to default-cluster if not set", "Expected description to mention default cluster")
+		s.Contains(desc, "Required parameter selecting which cluster to run the tool in", "Expected description to mention required cluster selection")
+	})
+	s.Run("requires cluster parameter", func() {
+		s.Contains(tool.Tool.InputSchema.Required, "cluster", "Expected cluster parameter to be required")
 	})
 }
 
