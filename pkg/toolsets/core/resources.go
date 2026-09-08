@@ -195,7 +195,51 @@ func initResources(p api.FilteringProvider) []api.ServerTool {
 				OpenWorldHint:   ptr.To(true),
 			},
 		}, Handler: resourcesScale},
+		{Tool: api.Tool{
+			Name:        "api_resources_list",
+			Description: "Find Kubernetes API resource types matching a kind, including apiVersion, plural name, and scope. Use this before generic resource tools when a CRD apiVersion is unknown.",
+			InputSchema: &jsonschema.Schema{
+				Type: "object",
+				Properties: map[string]*jsonschema.Schema{
+					"kind": {
+						Type:        "string",
+						Description: "Case-insensitive kind substring to find, such as 'deployment' or 'ciliumnetworkpolicy'. Use the most specific known kind.",
+					},
+				},
+				Required: []string{"kind"},
+			},
+			Annotations: api.ToolAnnotations{
+				Title:           "API Resources: List by Kind",
+				ReadOnlyHint:    ptr.To(true),
+				DestructiveHint: ptr.To(false),
+				IdempotentHint:  ptr.To(true),
+				OpenWorldHint:   ptr.To(true),
+			},
+		}, Handler: apiResourcesList},
 	}
+}
+
+type apiResourcesListResult struct {
+	Resources []kubernetes.APIResourceInfo `json:"resources"`
+	Warning   string                       `json:"warning,omitempty"`
+}
+
+func apiResourcesList(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
+	p := api.WrapParams(params)
+	kind := p.RequiredString("kind")
+	if err := p.Err(); err != nil {
+		return api.NewToolCallResultStructured(nil, fmt.Errorf("failed to list API resources: %w", err)), nil
+	}
+
+	resources, err := kubernetes.NewCore(params).APIResourcesList(kind)
+	if err != nil && len(resources) == 0 {
+		return api.NewToolCallResultStructured(nil, fmt.Errorf("failed to list API resources: %w", err)), nil
+	}
+	result := apiResourcesListResult{Resources: resources}
+	if err != nil {
+		result.Warning = fmt.Sprintf("some API groups could not be queried: %v", err)
+	}
+	return api.NewToolCallResultStructured(result, nil), nil
 }
 
 func resourcesList(params api.ToolHandlerParams) (*api.ToolCallResult, error) {

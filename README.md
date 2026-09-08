@@ -418,6 +418,9 @@ In case multi-cluster support is enabled (default) and you have access to multip
   - `namespace` (`string`) - Optional Namespace to get/update the namespaced resource scale from (ignored in case of cluster scoped resources). If not provided, will get/update resource scale from configured namespace
   - `scale` (`integer`) - Optional scale to update the resources scale to. If not provided, will return the current scale of the resource, and not update it
 
+- **api_resources_list** - Find Kubernetes API resource types matching a kind, including apiVersion, plural name, and scope. Use this before generic resource tools when a CRD apiVersion is unknown.
+  - `kind` (`string`) **(required)** - Case-insensitive kind substring to find, such as 'deployment' or 'ciliumnetworkpolicy'. Use the most specific known kind.
+
 </details>
 
 <details>

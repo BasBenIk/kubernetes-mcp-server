@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"github.com/containers/kubernetes-mcp-server/internal/test"
 	"regexp"
 	"strings"
@@ -167,6 +168,49 @@ func (s *ResourcesSuite) TestResourcesList() {
 				s.NotEqualf("resources-field-excluded", pod.GetName(), "resources-field-excluded has same label but should be filtered by fieldSelector")
 			}
 		})
+	})
+}
+
+func (s *ResourcesSuite) TestAPIResourcesList() {
+	s.InitMcpClient()
+	s.Run("requires kind", func() {
+		result, err := s.CallTool("api_resources_list", map[string]interface{}{})
+		s.Require().NoError(err)
+		s.True(result.IsError)
+	})
+	s.Run("finds core resources", func() {
+		result, err := s.CallTool("api_resources_list", map[string]interface{}{"kind": "pod"})
+		s.Require().NoError(err)
+		s.False(result.IsError)
+
+		var decoded struct {
+			Resources []struct {
+				APIVersion string `json:"apiVersion"`
+				Kind       string `json:"kind"`
+				Name       string `json:"name"`
+				Namespaced bool   `json:"namespaced"`
+			} `json:"resources"`
+		}
+		s.Require().NoError(json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &decoded))
+		for _, resource := range decoded.Resources {
+			if resource.Kind == "Pod" {
+				s.Equal("v1", resource.APIVersion)
+				s.Equal("pods", resource.Name)
+				s.True(resource.Namespaced)
+				return
+			}
+		}
+		s.Fail("expected Pod in API resource discovery result")
+	})
+	s.Run("returns an empty list when no kinds match", func() {
+		result, err := s.CallTool("api_resources_list", map[string]interface{}{"kind": "notakuberneteskind"})
+		s.Require().NoError(err)
+		s.False(result.IsError)
+		var decoded struct {
+			Resources []interface{} `json:"resources"`
+		}
+		s.Require().NoError(json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &decoded))
+		s.Empty(decoded.Resources)
 	})
 }
 

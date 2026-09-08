@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/dynamic"
 
@@ -205,10 +206,53 @@ func (c *Core) resourcesCreateOrUpdate(ctx context.Context, resources []*unstruc
 	return resources, nil
 }
 
+// APIResourceInfo describes a Kubernetes API resource using its preferred
+// version, kind, plural name, and scope.
+type APIResourceInfo struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Namespaced bool   `json:"namespaced"`
+}
+
+// APIResourcesList returns preferred API resources whose kinds contain the
+// supplied case-insensitive filter. The returned resources may be partial when
+// discovery reports an error for one or more API groups.
+func (c *Core) APIResourcesList(kindFilter string) ([]APIResourceInfo, error) {
+	lists, err := c.DiscoveryClient().ServerPreferredResources()
+	resources := make([]APIResourceInfo, 0, len(lists))
+	filter := strings.ToLower(kindFilter)
+	for _, list := range lists {
+		if list == nil {
+			continue
+		}
+		for _, resource := range list.APIResources {
+			if !strings.Contains(strings.ToLower(resource.Kind), filter) {
+				continue
+			}
+			resources = append(resources, APIResourceInfo{
+				APIVersion: list.GroupVersion,
+				Kind:       resource.Kind,
+				Name:       resource.Name,
+				Namespaced: resource.Namespaced,
+			})
+		}
+	}
+	return resources, err
+}
+
 func (c *Core) resourceFor(gvk *schema.GroupVersionKind) (*schema.GroupVersionResource, error) {
 	m, err := c.RESTMapper().RESTMapping(schema.GroupKind{Group: gvk.Group, Kind: gvk.Kind}, gvk.Version)
 	if err != nil {
-		return nil, err
+		if !meta.IsNoMatchError(err) {
+			return nil, err
+		}
+		// A CRD may be installed after the discovery-backed REST mapper was warmed.
+		c.RESTMapper().Reset()
+		m, err = c.RESTMapper().RESTMapping(schema.GroupKind{Group: gvk.Group, Kind: gvk.Kind}, gvk.Version)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &m.Resource, nil
 }
