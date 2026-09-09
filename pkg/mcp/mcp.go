@@ -485,6 +485,12 @@ func (s *Server) GetMetrics() *metrics.Metrics {
 	return s.metrics
 }
 
+// SessionCount returns the current number of MCP sessions. It exists to make
+// lifecycle regressions in stateful HTTP deployments observable in tests.
+func (s *Server) SessionCount() int {
+	return len(slices.Collect(s.server.Sessions()))
+}
+
 func (s *Server) ServeStdio(ctx context.Context) error {
 	return s.server.Run(ctx, &mcp.StdioTransport{})
 }

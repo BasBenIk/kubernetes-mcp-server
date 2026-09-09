@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/suite"
@@ -61,6 +62,23 @@ func (s *McpTransportSuite) TestStreamableHttpTransport() {
 			})
 			s.stopRunningServer()
 		})
+	}
+}
+
+func (s *McpTransportSuite) TestStatefulSessionsAreReleased() {
+	s.StaticConfig.Stateless = false
+	s.StartServer()
+	endpoint := fmt.Sprintf("http://127.0.0.1:%s/mcp", s.StaticConfig.Port)
+
+	for i := 0; i < 3; i++ {
+		client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1.33.7"}, nil)
+		session, err := client.Connect(s.T().Context(), &mcp.StreamableClientTransport{Endpoint: endpoint}, nil)
+		s.Require().NoError(err)
+		_, err = session.ListTools(s.T().Context(), nil)
+		s.Require().NoError(err)
+		s.Require().NoError(session.Close())
+		s.Eventually(func() bool { return s.mcpServer.SessionCount() == 0 }, time.Second, 10*time.Millisecond,
+			"stateful Streamable HTTP session should be released after client close")
 	}
 }
 

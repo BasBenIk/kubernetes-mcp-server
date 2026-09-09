@@ -12,7 +12,7 @@ require (
 	github.com/google/gnostic-models v0.7.1
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0
-	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/modelcontextprotocol/go-sdk v1.7.1-0.20260803115424-0d0cdbc943f3
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rhobs/obs-mcp v0.7.1
 	github.com/spf13/afero v1.15.0
