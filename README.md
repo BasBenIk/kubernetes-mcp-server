@@ -1,6 +1,11 @@
 # Kubernetes MCP Server
 
-This repository is a fork of the [Containers Kubernetes MCP Server](https://github.com/containers/kubernetes-mcp-server).
+> **This is an independent fork of the upstream [Containers Kubernetes MCP Server](https://github.com/containers/kubernetes-mcp-server).**
+>
+> The upstream project is the original source. This repository is maintained at
+> [BasBenIk/kubernetes-mcp-server](https://github.com/BasBenIk/kubernetes-mcp-server)
+> and contains additional safety, reliability, and bounded-diagnostics changes.
+
 It keeps the upstream project name and core functionality while focusing this fork
 on safe, reliable, long-running Kubernetes inspection and bounded diagnostics.
 
