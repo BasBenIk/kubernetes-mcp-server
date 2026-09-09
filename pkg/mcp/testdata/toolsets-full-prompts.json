@@ -2,15 +2,26 @@
   {
     "arguments": [
       {
+        "name": "check_events",
+        "description": "Include recent warning/error events (true/false, default: true)"
+      }
+    ],
+    "description": "Assess Kubernetes cluster health with bounded diagnostic collection",
+    "name": "cluster-health-check"
+  },
+  {
+    "arguments": [
+      {
         "name": "namespace",
-        "description": "Optional namespace to limit health check scope (default: all namespaces)"
+        "description": "Namespace to assess",
+        "required": true
       },
       {
         "name": "check_events",
         "description": "Include recent warning/error events (true/false, default: true)"
       }
     ],
-    "description": "Perform comprehensive health assessment of Kubernetes/OpenShift cluster",
-    "name": "cluster-health-check"
+    "description": "Assess Kubernetes workload health within one namespace",
+    "name": "namespace-health-check"
   }
 ]

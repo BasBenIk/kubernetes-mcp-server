@@ -1,37 +1,110 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/klog/v2"
 
 	"github.com/containers/kubernetes-mcp-server/pkg/api"
 	"github.com/containers/kubernetes-mcp-server/pkg/klogutil"
-	"github.com/containers/kubernetes-mcp-server/pkg/kubernetes"
 )
 
-// podHighRestartThreshold is the number of container restarts above which a pod
-// is flagged as having issues, even if it's currently running without errors.
-const podHighRestartThreshold = 5
+const (
+	podHighRestartThreshold = 5
 
-// initHealthChecks initializes the cluster health check prompts
+	healthCollectionTimeout        = 15 * time.Second
+	healthSectionTimeout           = 10 * time.Second
+	healthMaxAPICalls              = 6
+	healthEventWorkers             = 4
+	healthListLimit          int64 = 500
+	healthNamespaceLimit           = 2000
+	healthEventNamespaces          = 20
+	healthEventsPerNamespace int64 = 100
+	healthEventAge                 = time.Hour
+	healthIssueRows                = 20
+	healthEventRows                = 25
+	healthMessageRunes             = 160
+	healthPromptRunes              = 24000
+)
+
+type healthScope struct {
+	namespace string
+}
+
+func (s healthScope) isNamespaceScoped() bool {
+	return s.namespace != ""
+}
+
+type healthSection struct {
+	itemCount int
+	err       error
+	truncated bool
+	skipped   string
+	details   string
+}
+
+type healthDiagnostics struct {
+	mu sync.Mutex
+
+	collectionTime time.Time
+	scope          healthScope
+	sections       map[string]healthSection
+
+	nodes        *v1.NodeList
+	namespaces   *v1.NamespaceList
+	pods         *v1.PodList
+	deployments  *appsv1.DeploymentList
+	statefulSets *appsv1.StatefulSetList
+	daemonSets   *appsv1.DaemonSetList
+	pvcs         *v1.PersistentVolumeClaimList
+	events       []v1.Event
+}
+
+func newHealthDiagnostics(scope healthScope) *healthDiagnostics {
+	return &healthDiagnostics{
+		collectionTime: time.Now().UTC(),
+		scope:          scope,
+		sections:       make(map[string]healthSection),
+	}
+}
+
+func (d *healthDiagnostics) setSection(name string, section healthSection) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.sections[name] = section
+}
+
+func (d *healthDiagnostics) section(name string) healthSection {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.sections[name]
+}
+
+func (d *healthDiagnostics) setSkipped(names []string, reason string) {
+	for _, name := range names {
+		d.setSection(name, healthSection{skipped: reason})
+	}
+}
+
+// initHealthChecks initializes bounded cluster-wide and namespace-scoped health prompts.
 func initHealthChecks() []api.ServerPrompt {
 	return []api.ServerPrompt{
 		{
 			Prompt: api.Prompt{
 				Name:        "cluster-health-check",
 				Title:       "Cluster Health Check",
-				Description: "Perform comprehensive health assessment of Kubernetes/OpenShift cluster",
+				Description: "Assess Kubernetes cluster health with bounded diagnostic collection",
 				Arguments: []api.PromptArgument{
-					{
-						Name:        "namespace",
-						Description: "Optional namespace to limit health check scope (default: all namespaces)",
-						Required:    false,
-					},
 					{
 						Name:        "check_events",
 						Description: "Include recent warning/error events (true/false, default: true)",
@@ -41,67 +114,66 @@ func initHealthChecks() []api.ServerPrompt {
 			},
 			Handler: clusterHealthCheckHandler,
 		},
+		{
+			Prompt: api.Prompt{
+				Name:        "namespace-health-check",
+				Title:       "Namespace Health Check",
+				Description: "Assess Kubernetes workload health within one namespace",
+				Arguments: []api.PromptArgument{
+					{
+						Name:        "namespace",
+						Description: "Namespace to assess",
+						Required:    true,
+					},
+					{
+						Name:        "check_events",
+						Description: "Include recent warning/error events (true/false, default: true)",
+						Required:    false,
+					},
+				},
+			},
+			Handler: namespaceHealthCheckHandler,
+		},
 	}
 }
 
-// clusterHealthCheckHandler implements the cluster health check prompt
 func clusterHealthCheckHandler(params api.PromptHandlerParams) (*api.PromptCallResult, error) {
-	args := params.GetArguments()
-	namespace := args["namespace"]
-	checkEvents := args["check_events"] != "false" // default true
+	return runHealthCheck(params, healthScope{})
+}
 
+func namespaceHealthCheckHandler(params api.PromptHandlerParams) (*api.PromptCallResult, error) {
+	namespace := strings.TrimSpace(params.GetArguments()["namespace"])
+	if namespace == "" {
+		return nil, errors.New("namespace parameter is required")
+	}
+	return runHealthCheck(params, healthScope{namespace: namespace})
+}
+
+func runHealthCheck(params api.PromptHandlerParams, scope healthScope) (*api.PromptCallResult, error) {
+	if err := params.Context.Err(); err != nil {
+		return nil, err
+	}
+
+	checkEvents := params.GetArguments()["check_events"] != "false"
 	logger := klogutil.FromContext(params.Context)
-	logger.Info("Starting cluster health check...")
+	logger.Info("Starting health check", "kubernetes.namespace.name", scope.namespace, "events_enabled", checkEvents)
 
-	// Check if namespace exists if specified
-	namespaceWarning := ""
-	requestedNamespace := namespace
-	if namespace != "" {
-		_, err := params.CoreV1().Namespaces().Get(params.Context, namespace, metav1.GetOptions{})
-		if err != nil {
-			// Namespace doesn't exist - show warning and proceed with cluster-wide check
-			namespaceWarning = fmt.Sprintf("Namespace '%s' not found or not accessible. Showing cluster-wide information instead.", namespace)
-			namespace = "" // Fall back to cluster-wide check
-			klogutil.LogWarn(logger, "Namespace not found, performing cluster-wide health check",
-				klogutil.Field("kubernetes.namespace.name", requestedNamespace),
-			)
-		} else {
-			logger.Info("Performing health check for namespace", "kubernetes.namespace.name", namespace)
-		}
-	} else {
-		logger.Info("Performing cluster-wide health check")
-	}
-
-	diagnostics, err := gatherClusterDiagnostics(params, namespace, checkEvents)
-	if err != nil {
-		return nil, fmt.Errorf("failed to gather cluster diagnostics: %w", err)
-	}
-
-	// Set namespace warning and requested namespace for display
-	diagnostics.NamespaceWarning = namespaceWarning
-	if requestedNamespace != "" && namespaceWarning != "" {
-		diagnostics.TargetNamespace = requestedNamespace
-		diagnostics.NamespaceScoped = false // Changed to cluster-wide due to error
-	}
-
-	// Format diagnostic data for LLM analysis
-	promptText := formatHealthCheckPrompt(diagnostics)
-
+	diagnostics := gatherHealthDiagnostics(params, scope, checkEvents)
 	return api.NewPromptCallResult(
-		"Cluster health diagnostic data gathered successfully",
+		"Bounded Kubernetes health diagnostic data gathered",
 		[]api.PromptMessage{
 			{
 				Role: "user",
 				Content: api.PromptContent{
 					Type: "text",
-					Text: promptText,
+					Text: formatHealthCheckPrompt(diagnostics),
 				},
 			},
 			{
 				Role: "assistant",
 				Content: api.PromptContent{
 					Type: "text",
-					Text: "I'll analyze the cluster health diagnostic data and provide a comprehensive assessment.",
+					Text: "I'll analyze the health diagnostic data, including any collection limitations, and provide an assessment.",
 				},
 			},
 		},
@@ -109,603 +181,691 @@ func clusterHealthCheckHandler(params api.PromptHandlerParams) (*api.PromptCallR
 	), nil
 }
 
-// clusterDiagnostics contains all diagnostic data gathered from the cluster
-type clusterDiagnostics struct {
-	Nodes            string
-	Pods             string
-	Deployments      string
-	StatefulSets     string
-	DaemonSets       string
-	PVCs             string
-	ClusterOperators string
-	Events           string
-	CollectionTime   time.Time
-	TotalNamespaces  int
-	NamespaceScoped  bool
-	TargetNamespace  string
-	NamespaceWarning string
-}
+func gatherHealthDiagnostics(params api.PromptHandlerParams, scope healthScope, checkEvents bool) *healthDiagnostics {
+	ctx, cancel := context.WithTimeout(params.Context, healthCollectionTimeout)
+	defer cancel()
 
-// gatherClusterDiagnostics collects comprehensive diagnostic data from the cluster
-func gatherClusterDiagnostics(params api.PromptHandlerParams, namespace string, checkEvents bool) (*clusterDiagnostics, error) {
-	diag := &clusterDiagnostics{
-		CollectionTime:  time.Now(),
-		NamespaceScoped: namespace != "",
-		TargetNamespace: namespace,
+	diagnostics := newHealthDiagnostics(scope)
+	logger := klogutil.FromContext(ctx)
+	slots := make(chan struct{}, healthMaxAPICalls)
+
+	if scope.isNamespaceScoped() {
+		var err error
+		sectionCtx, sectionCancel := context.WithTimeout(ctx, healthSectionTimeout)
+		err = withHealthAPISlot(sectionCtx, slots, func() error {
+			_, getErr := params.CoreV1().Namespaces().Get(sectionCtx, scope.namespace, metav1.GetOptions{})
+			return getErr
+		})
+		sectionCancel()
+		namespaceItems := 1
+		if err != nil {
+			namespaceItems = 0
+		}
+		diagnostics.setSection("Namespace", healthSection{itemCount: namespaceItems, err: err})
+		if err != nil {
+			klogutil.LogWarn(logger, "Unable to verify namespace for health check", klogutil.Err(err), klogutil.Field("kubernetes.namespace.name", scope.namespace))
+			diagnostics.setSkipped([]string{"Pods", "Deployments", "StatefulSets", "DaemonSets", "PersistentVolumeClaims", "Events"}, "namespace could not be verified")
+			return diagnostics
+		}
+		diagnostics.setSkipped([]string{"Nodes", "Namespaces"}, "not applicable to a namespace-scoped health check")
 	}
 
-	logger := klogutil.FromContext(params.Context)
-
-	// Gather node diagnostics using ResourcesList
-	logger.Info("Collecting node diagnostics...")
-	nodeDiag, err := gatherNodeDiagnostics(params)
-	if err == nil {
-		diag.Nodes = nodeDiag
-		logger.Info("Node diagnostics collected")
-	} else {
-		klogutil.LogWarn(logger, "Failed to collect node diagnostics", klogutil.Err(err))
+	var group errgroup.Group
+	launch := func(name string, collect func(context.Context) healthSection) {
+		group.Go(func() error {
+			sectionCtx, sectionCancel := context.WithTimeout(ctx, healthSectionTimeout)
+			defer sectionCancel()
+			section := collect(sectionCtx)
+			if section.err == nil && sectionCtx.Err() != nil {
+				section.err = sectionCtx.Err()
+			}
+			diagnostics.setSection(name, section)
+			if section.err != nil {
+				klogutil.LogWarn(logger, "Health check section could not be collected", klogutil.Err(section.err), klogutil.Field("section", name))
+			}
+			return nil
+		})
 	}
 
-	// Gather pod diagnostics
-	logger.Info("Collecting pod diagnostics...")
-	podDiag, err := gatherPodDiagnostics(params, namespace)
-	if err == nil {
-		diag.Pods = podDiag
-		logger.Info("Pod diagnostics collected")
-	} else {
-		klogutil.LogWarn(logger, "Failed to collect pod diagnostics", klogutil.Err(err))
+	if !scope.isNamespaceScoped() {
+		launch("Nodes", func(sectionCtx context.Context) healthSection {
+			return collectHealthList(sectionCtx, slots,
+				func(ctx context.Context, options metav1.ListOptions) (*v1.NodeList, error) {
+					return params.CoreV1().Nodes().List(ctx, options)
+				},
+				func(list *v1.NodeList) {
+					diagnostics.mu.Lock()
+					diagnostics.nodes = list
+					diagnostics.mu.Unlock()
+				},
+				func(list *v1.NodeList) int { return len(list.Items) },
+			)
+		})
+		launch("Namespaces", func(sectionCtx context.Context) healthSection {
+			return collectNamespaces(sectionCtx, slots, params, diagnostics)
+		})
 	}
 
-	// Gather workload diagnostics
-	logger.Info("Collecting deployment diagnostics...")
-	deployDiag, err := gatherWorkloadDiagnostics(params, "Deployment", namespace)
-	if err == nil {
-		diag.Deployments = deployDiag
-		logger.Info("Deployment diagnostics collected")
-	} else {
-		klogutil.LogWarn(logger, "Failed to collect deployment diagnostics", klogutil.Err(err))
-	}
+	launch("Pods", func(sectionCtx context.Context) healthSection {
+		return collectHealthList(sectionCtx, slots,
+			func(ctx context.Context, options metav1.ListOptions) (*v1.PodList, error) {
+				return params.CoreV1().Pods(scope.namespace).List(ctx, options)
+			},
+			func(list *v1.PodList) {
+				diagnostics.mu.Lock()
+				diagnostics.pods = list
+				diagnostics.mu.Unlock()
+			},
+			func(list *v1.PodList) int { return len(list.Items) },
+		)
+	})
+	launch("Deployments", func(sectionCtx context.Context) healthSection {
+		return collectHealthList(sectionCtx, slots,
+			func(ctx context.Context, options metav1.ListOptions) (*appsv1.DeploymentList, error) {
+				return params.AppsV1().Deployments(scope.namespace).List(ctx, options)
+			},
+			func(list *appsv1.DeploymentList) {
+				diagnostics.mu.Lock()
+				diagnostics.deployments = list
+				diagnostics.mu.Unlock()
+			},
+			func(list *appsv1.DeploymentList) int { return len(list.Items) },
+		)
+	})
+	launch("StatefulSets", func(sectionCtx context.Context) healthSection {
+		return collectHealthList(sectionCtx, slots,
+			func(ctx context.Context, options metav1.ListOptions) (*appsv1.StatefulSetList, error) {
+				return params.AppsV1().StatefulSets(scope.namespace).List(ctx, options)
+			},
+			func(list *appsv1.StatefulSetList) {
+				diagnostics.mu.Lock()
+				diagnostics.statefulSets = list
+				diagnostics.mu.Unlock()
+			},
+			func(list *appsv1.StatefulSetList) int { return len(list.Items) },
+		)
+	})
+	launch("DaemonSets", func(sectionCtx context.Context) healthSection {
+		return collectHealthList(sectionCtx, slots,
+			func(ctx context.Context, options metav1.ListOptions) (*appsv1.DaemonSetList, error) {
+				return params.AppsV1().DaemonSets(scope.namespace).List(ctx, options)
+			},
+			func(list *appsv1.DaemonSetList) {
+				diagnostics.mu.Lock()
+				diagnostics.daemonSets = list
+				diagnostics.mu.Unlock()
+			},
+			func(list *appsv1.DaemonSetList) int { return len(list.Items) },
+		)
+	})
+	launch("PersistentVolumeClaims", func(sectionCtx context.Context) healthSection {
+		return collectHealthList(sectionCtx, slots,
+			func(ctx context.Context, options metav1.ListOptions) (*v1.PersistentVolumeClaimList, error) {
+				return params.CoreV1().PersistentVolumeClaims(scope.namespace).List(ctx, options)
+			},
+			func(list *v1.PersistentVolumeClaimList) {
+				diagnostics.mu.Lock()
+				diagnostics.pvcs = list
+				diagnostics.mu.Unlock()
+			},
+			func(list *v1.PersistentVolumeClaimList) int { return len(list.Items) },
+		)
+	})
+	_ = group.Wait()
 
-	logger.Info("Collecting statefulset diagnostics...")
-	stsDiag, err := gatherWorkloadDiagnostics(params, "StatefulSet", namespace)
-	if err == nil {
-		diag.StatefulSets = stsDiag
-		logger.Info("StatefulSet diagnostics collected")
-	} else {
-		klogutil.LogWarn(logger, "Failed to collect statefulset diagnostics", klogutil.Err(err))
-	}
-
-	logger.Info("Collecting daemonset diagnostics...")
-	dsDiag, err := gatherWorkloadDiagnostics(params, "DaemonSet", namespace)
-	if err == nil {
-		diag.DaemonSets = dsDiag
-		logger.Info("DaemonSet diagnostics collected")
-	} else {
-		klogutil.LogWarn(logger, "Failed to collect daemonset diagnostics", klogutil.Err(err))
-	}
-
-	// Gather PVC diagnostics
-	logger.Info("Collecting PVC diagnostics...")
-	pvcDiag, err := gatherPVCDiagnostics(params, namespace)
-	if err == nil {
-		diag.PVCs = pvcDiag
-		logger.Info("PVC diagnostics collected")
-	} else {
-		klogutil.LogWarn(logger, "Failed to collect PVC diagnostics", klogutil.Err(err))
-	}
-
-	// Gather cluster operator diagnostics (OpenShift only)
-	logger.Info("Checking for cluster operators (OpenShift)...")
-	operatorDiag, err := gatherClusterOperatorDiagnostics(params)
-	if err == nil {
-		diag.ClusterOperators = operatorDiag
-		logger.Info("Cluster operator diagnostics collected")
-	}
-
-	// Gather recent events if requested
 	if checkEvents {
-		logger.Info("Collecting recent events...")
-		eventDiag, err := gatherEventDiagnostics(params, namespace)
-		if err == nil {
-			diag.Events = eventDiag
-			logger.Info("Event diagnostics collected")
-		} else {
-			klogutil.LogWarn(logger, "Failed to collect event diagnostics", klogutil.Err(err))
+		diagnostics.setSection("Events", collectEvents(ctx, slots, params, diagnostics, logger))
+	} else {
+		diagnostics.setSection("Events", healthSection{skipped: "disabled by check_events=false"})
+	}
+
+	logger.Info("Health check data collection completed", "kubernetes.namespace.name", scope.namespace)
+	return diagnostics
+}
+
+func collectHealthList[T interface{ GetContinue() string }](
+	ctx context.Context,
+	slots chan struct{},
+	list func(context.Context, metav1.ListOptions) (T, error),
+	store func(T),
+	count func(T) int,
+) healthSection {
+	var result T
+	err := withHealthAPISlot(ctx, slots, func() error {
+		var err error
+		result, err = list(ctx, metav1.ListOptions{Limit: healthListLimit})
+		return err
+	})
+	if err != nil {
+		return healthSection{err: err}
+	}
+	store(result)
+	return healthSection{itemCount: count(result), truncated: result.GetContinue() != ""}
+}
+
+func collectNamespaces(ctx context.Context, slots chan struct{}, params api.PromptHandlerParams, diagnostics *healthDiagnostics) healthSection {
+	result := &v1.NamespaceList{}
+	continueToken := ""
+	truncated := false
+
+	for len(result.Items) < healthNamespaceLimit {
+		remaining := healthNamespaceLimit - len(result.Items)
+		limit := healthListLimit
+		if int64(remaining) < limit {
+			limit = int64(remaining)
+		}
+		var page *v1.NamespaceList
+		err := withHealthAPISlot(ctx, slots, func() error {
+			var err error
+			page, err = params.CoreV1().Namespaces().List(ctx, metav1.ListOptions{Limit: limit, Continue: continueToken})
+			return err
+		})
+		if err != nil {
+			diagnostics.mu.Lock()
+			diagnostics.namespaces = result
+			diagnostics.mu.Unlock()
+			return healthSection{itemCount: len(result.Items), err: err, truncated: len(result.Items) > 0}
+		}
+
+		if len(page.Items) > remaining {
+			result.Items = append(result.Items, page.Items[:remaining]...)
+			truncated = true
+			break
+		}
+		result.Items = append(result.Items, page.Items...)
+		continueToken = page.GetContinue()
+		if continueToken == "" {
+			break
+		}
+		if len(result.Items) == healthNamespaceLimit {
+			truncated = true
 		}
 	}
 
-	// Count namespaces
-	logger.Info("Counting namespaces...")
-	namespaceList, err := params.CoreV1().Namespaces().List(params.Context, metav1.ListOptions{})
-	if err == nil {
-		diag.TotalNamespaces = len(namespaceList.Items)
-		logger.Info("Found namespaces", "kubernetes.namespaces.count", diag.TotalNamespaces)
-	}
-
-	logger.Info("Cluster health check data collection completed")
-	return diag, nil
+	diagnostics.mu.Lock()
+	diagnostics.namespaces = result
+	diagnostics.mu.Unlock()
+	return healthSection{itemCount: len(result.Items), truncated: truncated}
 }
 
-// gatherNodeDiagnostics collects node status using CoreV1 clientset
-func gatherNodeDiagnostics(params api.PromptHandlerParams) (string, error) {
-	nodeList, err := params.CoreV1().Nodes().List(params.Context, metav1.ListOptions{})
-	if err != nil {
-		return "", err
+func withHealthAPISlot(ctx context.Context, slots chan struct{}, call func() error) error {
+	select {
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
+	case <-ctx.Done():
+		return ctx.Err()
 	}
+	return call()
+}
 
-	if len(nodeList.Items) == 0 {
-		return "No nodes found", nil
+func collectEvents(ctx context.Context, slots chan struct{}, params api.PromptHandlerParams, diagnostics *healthDiagnostics, logger klog.Logger) healthSection {
+	namespaces, details, namespacesTruncated := eventNamespaces(diagnostics)
+	sectionCtx, cancel := context.WithTimeout(ctx, healthSectionTimeout)
+	defer cancel()
+
+	var (
+		mu        sync.Mutex
+		events    []v1.Event
+		failures  int
+		truncated = namespacesTruncated
+	)
+	jobs := make(chan string)
+	var group errgroup.Group
+	workers := healthEventWorkers
+	if len(namespaces) < workers {
+		workers = len(namespaces)
 	}
-
-	var sb strings.Builder
-	totalNodes := len(nodeList.Items)
-	healthyNodes := 0
-	var nodesWithIssues []string
-
-	for _, node := range nodeList.Items {
-		nodeStatus := "Unknown"
-		var issues []string
-
-		// Parse node conditions
-		for _, cond := range node.Status.Conditions {
-			if cond.Type == v1.NodeReady {
-				if cond.Status == v1.ConditionTrue {
-					nodeStatus = "Ready"
-					healthyNodes++
+	for range workers {
+		group.Go(func() error {
+			for namespace := range jobs {
+				var list *v1.EventList
+				err := withHealthAPISlot(sectionCtx, slots, func() error {
+					var err error
+					list, err = params.CoreV1().Events(namespace).List(sectionCtx, metav1.ListOptions{
+						FieldSelector: "type!=Normal",
+						Limit:         healthEventsPerNamespace,
+					})
+					return err
+				})
+				mu.Lock()
+				if err != nil {
+					failures++
 				} else {
-					nodeStatus = "NotReady"
-					issues = append(issues, fmt.Sprintf("Not ready: %s", cond.Message))
+					events = append(events, list.Items...)
+					truncated = truncated || list.GetContinue() != ""
 				}
-			} else if cond.Status == v1.ConditionTrue {
-				// Pressure conditions
-				issues = append(issues, fmt.Sprintf("%s: %s", cond.Type, cond.Message))
+				mu.Unlock()
 			}
-		}
-
-		// Only report nodes with issues
-		if len(issues) > 0 {
-			nodesWithIssues = append(nodesWithIssues, fmt.Sprintf("- **%s** (Status: %s)\n%s", node.Name, nodeStatus, "  - "+strings.Join(issues, "\n  - ")))
+			return nil
+		})
+	}
+dispatch:
+	for _, namespace := range namespaces {
+		select {
+		case jobs <- namespace:
+		case <-sectionCtx.Done():
+			truncated = true
+			break dispatch
 		}
 	}
+	close(jobs)
+	_ = group.Wait()
 
-	fmt.Fprintf(&sb, "**Total:** %d | **Healthy:** %d\n\n", totalNodes, healthyNodes)
-	if len(nodesWithIssues) > 0 {
-		sb.WriteString(strings.Join(nodesWithIssues, "\n\n"))
-	} else {
-		sb.WriteString("*All nodes are healthy*")
+	filtered := filterRecentEvents(events, time.Now().Add(-healthEventAge))
+	diagnostics.mu.Lock()
+	diagnostics.events = filtered
+	diagnostics.mu.Unlock()
+
+	section := healthSection{itemCount: len(filtered), truncated: truncated, details: details}
+	if failures > 0 {
+		section.err = fmt.Errorf("%d namespace event collection request(s) failed", failures)
+		klogutil.LogWarn(logger, "Health check event collection was incomplete", klogutil.Err(section.err))
 	}
-
-	return sb.String(), nil
+	return section
 }
 
-// gatherPodDiagnostics collects pod status using CoreV1 clientset
-func gatherPodDiagnostics(params api.PromptHandlerParams, namespace string) (string, error) {
-	podList, err := params.CoreV1().Pods(namespace).List(params.Context, metav1.ListOptions{})
-	if err != nil {
-		return "", err
+func eventNamespaces(diagnostics *healthDiagnostics) ([]string, string, bool) {
+	if diagnostics.scope.isNamespaceScoped() {
+		return []string{diagnostics.scope.namespace}, "", false
 	}
 
-	if len(podList.Items) == 0 {
-		return "No pods found", nil
+	namespaces := []string{"default", "kube-system"}
+	seen := map[string]struct{}{"default": {}, "kube-system": {}}
+
+	diagnostics.mu.Lock()
+	namespaceList := diagnostics.namespaces
+	diagnostics.mu.Unlock()
+	if namespaceList == nil {
+		return namespaces, "additional system namespaces could not be discovered", false
+	}
+	if namespaceSection := diagnostics.section("Namespaces"); namespaceSection.err != nil {
+		return namespaces, "additional system namespaces could not be discovered", namespaceSection.truncated
 	}
 
-	totalPods := len(podList.Items)
-	var problemPods []string
-
-	for _, pod := range podList.Items {
-		var issues []string
-		restarts := int32(0)
-		readyCount := 0
-		totalContainers := len(pod.Status.ContainerStatuses)
-
-		// Check container statuses
-		for _, cs := range pod.Status.ContainerStatuses {
-			if cs.Ready {
-				readyCount++
-			}
-			restarts += cs.RestartCount
-
-			// Check waiting state
-			if cs.State.Waiting != nil {
-				reason := cs.State.Waiting.Reason
-				if reason == "CrashLoopBackOff" || reason == "ImagePullBackOff" || reason == "ErrImagePull" {
-					issues = append(issues, fmt.Sprintf("Container waiting: %s - %s", reason, cs.State.Waiting.Message))
-				}
-			}
-
-			// Check terminated state
-			if cs.State.Terminated != nil {
-				reason := cs.State.Terminated.Reason
-				if reason == "Error" || reason == "OOMKilled" {
-					issues = append(issues, fmt.Sprintf("Container terminated: %s", reason))
-				}
+	var additional []string
+	for _, namespace := range namespaceList.Items {
+		name := namespace.Name
+		if strings.HasSuffix(name, "-system") || strings.HasPrefix(name, "openshift-") {
+			if _, ok := seen[name]; !ok {
+				seen[name] = struct{}{}
+				additional = append(additional, name)
 			}
 		}
-
-		// Check pod phase
-		if pod.Status.Phase != v1.PodRunning && pod.Status.Phase != v1.PodSucceeded {
-			issues = append(issues, fmt.Sprintf("Pod in %s phase", pod.Status.Phase))
-		}
-
-		// Report pods with issues or high restart count
-		if len(issues) > 0 || restarts > podHighRestartThreshold {
-			problemPods = append(problemPods, fmt.Sprintf("- **%s/%s** (Phase: %s, Ready: %d/%d, Restarts: %d)\n  - %s",
-				pod.Namespace, pod.Name, pod.Status.Phase, readyCount, totalContainers, restarts, strings.Join(issues, "\n  - ")))
-		}
 	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "**Total:** %d | **With Issues:** %d\n\n", totalPods, len(problemPods))
-	if len(problemPods) > 0 {
-		sb.WriteString(strings.Join(problemPods, "\n\n"))
-	} else {
-		sb.WriteString("*No pod issues detected*")
+	sort.Strings(additional)
+	namespaces = append(namespaces, additional...)
+	if len(namespaces) <= healthEventNamespaces {
+		return namespaces, "", diagnostics.section("Namespaces").truncated
 	}
-
-	return sb.String(), nil
+	omitted := len(namespaces) - healthEventNamespaces
+	return namespaces[:healthEventNamespaces], fmt.Sprintf("%d eligible system namespace(s) were not queried", omitted), true
 }
 
-// gatherWorkloadDiagnostics collects workload controller status using AppsV1 clientset
-func gatherWorkloadDiagnostics(params api.PromptHandlerParams, kind string, namespace string) (string, error) {
-	var workloadsWithIssues []string
-
-	switch kind {
-	case "Deployment":
-		deploymentList, err := params.AppsV1().Deployments(namespace).List(params.Context, metav1.ListOptions{})
-		if err != nil {
-			return "", err
-		}
-		if len(deploymentList.Items) == 0 {
-			return "No Deployments found", nil
-		}
-
-		for _, deployment := range deploymentList.Items {
-			var issues []string
-			ready := fmt.Sprintf("%d/%d", deployment.Status.ReadyReplicas, deployment.Status.Replicas)
-
-			if deployment.Status.UnavailableReplicas > 0 {
-				issues = append(issues, fmt.Sprintf("%d replicas unavailable", deployment.Status.UnavailableReplicas))
-			}
-
-			if len(issues) > 0 {
-				workloadsWithIssues = append(workloadsWithIssues, fmt.Sprintf("- **%s/%s** (Ready: %s)\n  - %s",
-					deployment.Namespace, deployment.Name, ready, strings.Join(issues, "\n  - ")))
-			}
-		}
-
-	case "StatefulSet":
-		statefulSetList, err := params.AppsV1().StatefulSets(namespace).List(params.Context, metav1.ListOptions{})
-		if err != nil {
-			return "", err
-		}
-		if len(statefulSetList.Items) == 0 {
-			return "No StatefulSets found", nil
-		}
-
-		for _, sts := range statefulSetList.Items {
-			var issues []string
-			specReplicas := int32(1)
-			if sts.Spec.Replicas != nil {
-				specReplicas = *sts.Spec.Replicas
-			}
-			ready := fmt.Sprintf("%d/%d", sts.Status.ReadyReplicas, specReplicas)
-
-			if sts.Status.ReadyReplicas < specReplicas {
-				issues = append(issues, fmt.Sprintf("Only %d/%d replicas ready", sts.Status.ReadyReplicas, specReplicas))
-			}
-
-			if len(issues) > 0 {
-				workloadsWithIssues = append(workloadsWithIssues, fmt.Sprintf("- **%s/%s** (Ready: %s)\n  - %s",
-					sts.Namespace, sts.Name, ready, strings.Join(issues, "\n  - ")))
-			}
-		}
-
-	case "DaemonSet":
-		daemonSetList, err := params.AppsV1().DaemonSets(namespace).List(params.Context, metav1.ListOptions{})
-		if err != nil {
-			return "", err
-		}
-		if len(daemonSetList.Items) == 0 {
-			return "No DaemonSets found", nil
-		}
-
-		for _, ds := range daemonSetList.Items {
-			var issues []string
-			ready := fmt.Sprintf("%d/%d", ds.Status.NumberReady, ds.Status.DesiredNumberScheduled)
-
-			if ds.Status.NumberUnavailable > 0 {
-				issues = append(issues, fmt.Sprintf("%d pods unavailable", ds.Status.NumberUnavailable))
-			}
-
-			if len(issues) > 0 {
-				workloadsWithIssues = append(workloadsWithIssues, fmt.Sprintf("- **%s/%s** (Ready: %s)\n  - %s",
-					ds.Namespace, ds.Name, ready, strings.Join(issues, "\n  - ")))
-			}
-		}
-
-	default:
-		return "", fmt.Errorf("unsupported workload kind: %s", kind)
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "**%ss with Issues:** %d\n\n", kind, len(workloadsWithIssues))
-	if len(workloadsWithIssues) > 0 {
-		sb.WriteString(strings.Join(workloadsWithIssues, "\n\n"))
-	} else {
-		fmt.Fprintf(&sb, "*No %s issues detected*", kind)
-	}
-
-	return sb.String(), nil
-}
-
-// gatherPVCDiagnostics collects PVC status using CoreV1 clientset
-func gatherPVCDiagnostics(params api.PromptHandlerParams, namespace string) (string, error) {
-	pvcList, err := params.CoreV1().PersistentVolumeClaims(namespace).List(params.Context, metav1.ListOptions{})
-	if err != nil {
-		return "", err
-	}
-
-	if len(pvcList.Items) == 0 {
-		return "No PVCs found", nil
-	}
-
-	var pvcsWithIssues []string
-
-	for _, pvc := range pvcList.Items {
-		if pvc.Status.Phase != v1.ClaimBound {
-			pvcsWithIssues = append(pvcsWithIssues, fmt.Sprintf("- **%s/%s** (Status: %s)\n  - PVC not bound",
-				pvc.Namespace, pvc.Name, pvc.Status.Phase))
-		}
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "**PVCs with Issues:** %d\n\n", len(pvcsWithIssues))
-	if len(pvcsWithIssues) > 0 {
-		sb.WriteString(strings.Join(pvcsWithIssues, "\n\n"))
-	} else {
-		sb.WriteString("*No PVC issues detected*")
-	}
-
-	return sb.String(), nil
-}
-
-// gatherClusterOperatorDiagnostics collects ClusterOperator status (OpenShift only)
-func gatherClusterOperatorDiagnostics(params api.PromptHandlerParams) (string, error) {
-	gvk := &schema.GroupVersionKind{
-		Group:   "config.openshift.io",
-		Version: "v1",
-		Kind:    "ClusterOperator",
-	}
-
-	operatorList, err := kubernetes.NewCore(params).ResourcesList(params, gvk, "", api.ListOptions{})
-	if err != nil {
-		// Not an OpenShift cluster
-		return "", err
-	}
-
-	items, ok := operatorList.UnstructuredContent()["items"].([]interface{})
-	if !ok || len(items) == 0 {
-		return "No cluster operators found", nil
-	}
-
-	var operatorsWithIssues []string
-
-	for _, item := range items {
-		opMap, ok := item.(map[string]interface{})
-		if !ok {
+func filterRecentEvents(events []v1.Event, since time.Time) []v1.Event {
+	filtered := make([]v1.Event, 0, len(events))
+	for _, event := range events {
+		if event.Type != v1.EventTypeWarning && event.Type != "Error" {
 			continue
 		}
-
-		metadata, _ := opMap["metadata"].(map[string]interface{})
-		name, _ := metadata["name"].(string)
-
-		status, _ := opMap["status"].(map[string]interface{})
-		conditions, _ := status["conditions"].([]interface{})
-
-		available := "Unknown"
-		degraded := "Unknown"
-		var issues []string
-
-		for _, cond := range conditions {
-			condMap, _ := cond.(map[string]interface{})
-			condType, _ := condMap["type"].(string)
-			condStatus, _ := condMap["status"].(string)
-			message, _ := condMap["message"].(string)
-
-			switch condType {
-			case "Available":
-				available = condStatus
-				if condStatus != "True" {
-					issues = append(issues, fmt.Sprintf("Not available: %s", message))
-				}
-			case "Degraded":
-				degraded = condStatus
-				if condStatus == "True" {
-					issues = append(issues, fmt.Sprintf("Degraded: %s", message))
-				}
-			}
-		}
-
-		if len(issues) > 0 {
-			operatorsWithIssues = append(operatorsWithIssues, fmt.Sprintf("- **%s** (Available: %s, Degraded: %s)\n  - %s",
-				name, available, degraded, strings.Join(issues, "\n  - ")))
-		}
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "**Operators with Issues:** %d\n\n", len(operatorsWithIssues))
-	if len(operatorsWithIssues) > 0 {
-		sb.WriteString(strings.Join(operatorsWithIssues, "\n\n"))
-	} else {
-		sb.WriteString("*All cluster operators are healthy*")
-	}
-
-	return sb.String(), nil
-}
-
-// gatherEventDiagnostics collects recent warning and error events
-func gatherEventDiagnostics(params api.PromptHandlerParams, namespace string) (string, error) {
-	var namespaces []string
-
-	if namespace != "" {
-		namespaces = append(namespaces, namespace)
-	} else {
-		// Important namespaces
-		namespaces = []string{"default", "kube-system"}
-
-		// Add OpenShift namespaces using typed clientset
-		nsList, err := params.CoreV1().Namespaces().List(params.Context, metav1.ListOptions{})
-		if err == nil {
-			for _, ns := range nsList.Items {
-				if strings.HasPrefix(ns.Name, "openshift-") {
-					namespaces = append(namespaces, ns.Name)
-				}
-			}
-		}
-	}
-
-	oneHourAgo := time.Now().Add(-1 * time.Hour)
-	totalWarnings := 0
-	totalErrors := 0
-	var recentEvents []string
-
-	for _, ns := range namespaces {
-		eventList, err := params.CoreV1().Events(ns).List(params.Context, metav1.ListOptions{})
-		if err != nil {
+		if eventTime(event).Before(since) {
 			continue
 		}
-
-		for _, event := range eventList.Items {
-			// Only include Warning and Error events
-			if event.Type != v1.EventTypeWarning && event.Type != "Error" {
-				continue
-			}
-
-			// Check timestamp
-			lastSeenTime := event.LastTimestamp.Time
-			if lastSeenTime.IsZero() {
-				lastSeenTime = event.EventTime.Time
-			}
-			if lastSeenTime.Before(oneHourAgo) {
-				continue
-			}
-
-			if event.Type == v1.EventTypeWarning {
-				totalWarnings++
-			} else {
-				totalErrors++
-			}
-
-			// Limit message length
-			message := event.Message
-			if len(message) > 150 {
-				message = message[:150] + "..."
-			}
-
-			recentEvents = append(recentEvents, fmt.Sprintf("- **%s/%s** in `%s` (%s, Count: %d)\n  - %s",
-				event.InvolvedObject.Kind, event.InvolvedObject.Name, ns, event.Reason, event.Count, message))
+		filtered = append(filtered, event)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		left, right := eventTime(filtered[i]), eventTime(filtered[j])
+		if !left.Equal(right) {
+			return left.After(right)
 		}
-	}
-
-	// Limit to 20 most recent events
-	if len(recentEvents) > 20 {
-		recentEvents = recentEvents[:20]
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "**Warnings:** %d | **Errors:** %d\n\n", totalWarnings, totalErrors)
-	if len(recentEvents) > 0 {
-		sb.WriteString(strings.Join(recentEvents, "\n\n"))
-	} else {
-		sb.WriteString("*No recent warning/error events*")
-	}
-
-	return sb.String(), nil
+		return eventKey(filtered[i]) < eventKey(filtered[j])
+	})
+	return filtered
 }
 
-// formatHealthCheckPrompt formats diagnostic data into a prompt for LLM analysis
-func formatHealthCheckPrompt(diag *clusterDiagnostics) string {
+func eventTime(event v1.Event) time.Time {
+	candidates := []time.Time{
+		event.EventTime.Time,
+		event.LastTimestamp.Time,
+		event.CreationTimestamp.Time,
+	}
+	if event.Series != nil {
+		candidates = append(candidates, event.Series.LastObservedTime.Time)
+	}
+	for _, candidate := range candidates {
+		if !candidate.IsZero() {
+			return candidate
+		}
+	}
+	return time.Time{}
+}
+
+func eventKey(event v1.Event) string {
+	return strings.Join([]string{event.Namespace, event.InvolvedObject.Kind, event.InvolvedObject.Name, event.Reason}, "/")
+}
+
+func formatHealthCheckPrompt(diagnostics *healthDiagnostics) string {
 	var sb strings.Builder
-
-	sb.WriteString("# Cluster Health Check Diagnostic Data\n\n")
-	fmt.Fprintf(&sb, "**Collection Time:** %s\n", diag.CollectionTime.Format(time.RFC3339))
-
-	// Show namespace warning prominently if present
-	if diag.NamespaceWarning != "" {
-		sb.WriteString("\n")
-		sb.WriteString("⚠️  **WARNING:** " + diag.NamespaceWarning + "\n")
-		sb.WriteString("\n")
-		sb.WriteString("**Note:** Please verify the namespace name and try again if you want namespace-specific diagnostics.\n")
+	title := "Cluster"
+	if diagnostics.scope.isNamespaceScoped() {
+		title = "Namespace"
+	}
+	fmt.Fprintf(&sb, "# %s Health Check Diagnostic Data\n\n", title)
+	fmt.Fprintf(&sb, "**Collection time:** %s\n", diagnostics.collectionTime.Format(time.RFC3339))
+	if diagnostics.scope.isNamespaceScoped() {
+		fmt.Fprintf(&sb, "**Scope:** Namespace `%s`\n\n", diagnostics.scope.namespace)
+	} else {
+		fmt.Fprintf(&sb, "**Scope:** Cluster-wide workloads, with bounded system event collection\n\n")
 	}
 
-	if diag.NamespaceScoped {
-		fmt.Fprintf(&sb, "**Scope:** Namespace `%s`\n", diag.TargetNamespace)
-	} else {
-		fmt.Fprintf(&sb, "**Scope:** All namespaces (Total: %d)\n", diag.TotalNamespaces)
+	sb.WriteString("## Analysis Instructions\n\n")
+	sb.WriteString("Assess the collected evidence as Healthy, Warning, or Critical. Call out immediate risks, separate confirmed findings from unavailable or incomplete sections, and recommend targeted follow-up checks. Do not infer health from a section that was not collected.\n\n")
+	renderCollectionStatus(&sb, diagnostics)
+
+	if !diagnostics.scope.isNamespaceScoped() {
+		renderNodes(&sb, diagnostics.nodes, diagnostics.section("Nodes"))
+	}
+	renderPods(&sb, diagnostics.pods, diagnostics.section("Pods"))
+	renderWorkloads(&sb, diagnostics)
+	renderPVCs(&sb, diagnostics.pvcs, diagnostics.section("PersistentVolumeClaims"))
+	renderEvents(&sb, diagnostics.events, diagnostics.section("Events"))
+
+	return truncatePrompt(sb.String())
+}
+
+func renderCollectionStatus(sb *strings.Builder, diagnostics *healthDiagnostics) {
+	sb.WriteString("## Collection Status\n\n")
+	names := []string{"Namespace", "Namespaces", "Nodes", "Pods", "Deployments", "StatefulSets", "DaemonSets", "PersistentVolumeClaims", "Events"}
+	for _, name := range names {
+		if (name == "Namespace" && !diagnostics.scope.isNamespaceScoped()) || (name == "Namespaces" && diagnostics.scope.isNamespaceScoped()) || (name == "Nodes" && diagnostics.scope.isNamespaceScoped()) {
+			continue
+		}
+		section := diagnostics.section(name)
+		fmt.Fprintf(sb, "- **%s:** %s\n", name, healthSectionSummary(section))
 	}
 	sb.WriteString("\n")
+}
 
-	sb.WriteString("## Your Task\n\n")
-	sb.WriteString("Analyze the following cluster diagnostic data and provide:\n")
-	sb.WriteString("1. **Overall Health Status**: Healthy, Warning, or Critical\n")
-	sb.WriteString("2. **Critical Issues**: Issues requiring immediate attention\n")
-	sb.WriteString("3. **Warnings**: Non-critical issues that should be addressed\n")
-	sb.WriteString("4. **Recommendations**: Suggested actions to improve cluster health\n")
-	sb.WriteString("5. **Summary**: Brief overview of findings by component\n\n")
-
-	sb.WriteString("---\n\n")
-
-	if diag.Nodes != "" {
-		sb.WriteString("## 1. Nodes\n\n")
-		sb.WriteString(diag.Nodes)
-		sb.WriteString("\n\n")
+func healthSectionSummary(section healthSection) string {
+	if section.skipped != "" {
+		return "not collected: " + section.skipped
 	}
-
-	if diag.ClusterOperators != "" {
-		sb.WriteString("## 2. Cluster Operators (OpenShift)\n\n")
-		sb.WriteString(diag.ClusterOperators)
-		sb.WriteString("\n\n")
+	parts := []string{fmt.Sprintf("collected %d object(s)", section.itemCount)}
+	if section.truncated {
+		parts = append(parts, "incomplete due to collection limit")
 	}
-
-	if diag.Pods != "" {
-		sb.WriteString("## 3. Pods\n\n")
-		sb.WriteString(diag.Pods)
-		sb.WriteString("\n\n")
-	}
-
-	if diag.Deployments != "" || diag.StatefulSets != "" || diag.DaemonSets != "" {
-		sb.WriteString("## 4. Workload Controllers\n\n")
-		if diag.Deployments != "" {
-			sb.WriteString("### Deployments\n\n")
-			sb.WriteString(diag.Deployments)
-			sb.WriteString("\n\n")
-		}
-		if diag.StatefulSets != "" {
-			sb.WriteString("### StatefulSets\n\n")
-			sb.WriteString(diag.StatefulSets)
-			sb.WriteString("\n\n")
-		}
-		if diag.DaemonSets != "" {
-			sb.WriteString("### DaemonSets\n\n")
-			sb.WriteString(diag.DaemonSets)
-			sb.WriteString("\n\n")
+	if section.err != nil {
+		if errors.Is(section.err, context.DeadlineExceeded) {
+			parts = append(parts, "incomplete because the time limit was reached")
+		} else {
+			parts = append(parts, "unavailable: "+truncateText(section.err.Error(), healthMessageRunes))
 		}
 	}
-
-	if diag.PVCs != "" {
-		sb.WriteString("## 5. Persistent Volume Claims\n\n")
-		sb.WriteString(diag.PVCs)
-		sb.WriteString("\n\n")
+	if section.details != "" {
+		parts = append(parts, section.details)
 	}
+	return strings.Join(parts, "; ")
+}
 
-	if diag.Events != "" {
-		sb.WriteString("## 6. Recent Events (Last Hour)\n\n")
-		sb.WriteString(diag.Events)
-		sb.WriteString("\n\n")
+func renderNodes(sb *strings.Builder, nodes *v1.NodeList, section healthSection) {
+	sb.WriteString("## Nodes\n\n")
+	if !renderSectionWarning(sb, section) || nodes == nil {
+		return
 	}
+	issues := make([]healthIssue, 0)
+	ready := 0
+	for _, node := range nodes.Items {
+		isReady := false
+		readyFound := false
+		var reasons []string
+		for _, condition := range node.Status.Conditions {
+			if condition.Type == v1.NodeReady {
+				readyFound = true
+				isReady = condition.Status == v1.ConditionTrue
+				if !isReady {
+					reasons = append(reasons, healthReason("not ready", condition.Message))
+				}
+			} else if condition.Status == v1.ConditionTrue {
+				reasons = append(reasons, healthReason(string(condition.Type), condition.Message))
+			}
+		}
+		if !readyFound {
+			reasons = append(reasons, "Ready condition is missing")
+		}
+		if isReady {
+			ready++
+		}
+		if len(reasons) > 0 {
+			issues = append(issues, healthIssue{key: node.Name, text: fmt.Sprintf("**%s**: %s", node.Name, strings.Join(reasons, "; "))})
+		}
+	}
+	sortHealthIssues(issues)
+	fmt.Fprintf(sb, "**Collected:** %d | **Ready:** %d | **With issues:** %d\n\n", len(nodes.Items), ready, len(issues))
+	renderHealthIssues(sb, issues, "No node issues detected")
+}
 
-	sb.WriteString("---\n\n")
-	sb.WriteString("**Please analyze the above diagnostic data and provide your comprehensive health assessment.**\n")
+func renderPods(sb *strings.Builder, pods *v1.PodList, section healthSection) {
+	sb.WriteString("## Pods\n\n")
+	if !renderSectionWarning(sb, section) || pods == nil {
+		return
+	}
+	issues := make([]healthIssue, 0)
+	for _, pod := range pods.Items {
+		var reasons []string
+		restarts := int32(0)
+		ready := 0
+		for _, status := range pod.Status.ContainerStatuses {
+			if status.Ready {
+				ready++
+			}
+			restarts += status.RestartCount
+			if waiting := status.State.Waiting; waiting != nil && (waiting.Reason == "CrashLoopBackOff" || waiting.Reason == "ImagePullBackOff" || waiting.Reason == "ErrImagePull") {
+				reasons = append(reasons, healthReason("container waiting "+waiting.Reason, waiting.Message))
+			}
+			if terminated := status.State.Terminated; terminated != nil && (terminated.Reason == "Error" || terminated.Reason == "OOMKilled") {
+				reasons = append(reasons, "container terminated "+terminated.Reason)
+			}
+		}
+		if pod.Status.Phase != v1.PodRunning && pod.Status.Phase != v1.PodSucceeded {
+			reasons = append(reasons, "pod phase "+string(pod.Status.Phase))
+		}
+		if restarts > podHighRestartThreshold {
+			reasons = append(reasons, fmt.Sprintf("%d container restart(s), threshold %d", restarts, podHighRestartThreshold))
+		}
+		if len(reasons) > 0 {
+			key := namespacedName(pod.Namespace, pod.Name)
+			issues = append(issues, healthIssue{key: key, text: fmt.Sprintf("**%s** (phase %s, ready %d/%d, restarts %d): %s", key, pod.Status.Phase, ready, len(pod.Status.ContainerStatuses), restarts, strings.Join(reasons, "; "))})
+		}
+	}
+	sortHealthIssues(issues)
+	fmt.Fprintf(sb, "**Collected:** %d | **With issues:** %d\n\n", len(pods.Items), len(issues))
+	renderHealthIssues(sb, issues, "No pod issues detected")
+}
 
-	return sb.String()
+func renderWorkloads(sb *strings.Builder, diagnostics *healthDiagnostics) {
+	sb.WriteString("## Workload Controllers\n\n")
+	renderDeployments(sb, diagnostics.deployments, diagnostics.section("Deployments"))
+	renderStatefulSets(sb, diagnostics.statefulSets, diagnostics.section("StatefulSets"))
+	renderDaemonSets(sb, diagnostics.daemonSets, diagnostics.section("DaemonSets"))
+}
+
+func renderDeployments(sb *strings.Builder, deployments *appsv1.DeploymentList, section healthSection) {
+	sb.WriteString("### Deployments\n\n")
+	if !renderSectionWarning(sb, section) || deployments == nil {
+		return
+	}
+	issues := make([]healthIssue, 0)
+	for _, deployment := range deployments.Items {
+		if deployment.Status.UnavailableReplicas > 0 {
+			key := namespacedName(deployment.Namespace, deployment.Name)
+			issues = append(issues, healthIssue{key: key, text: fmt.Sprintf("**%s**: %d unavailable replica(s) (ready %d/%d)", key, deployment.Status.UnavailableReplicas, deployment.Status.ReadyReplicas, deployment.Status.Replicas)})
+		}
+	}
+	sortHealthIssues(issues)
+	fmt.Fprintf(sb, "**Collected:** %d | **With issues:** %d\n\n", len(deployments.Items), len(issues))
+	renderHealthIssues(sb, issues, "No deployment issues detected")
+}
+
+func renderStatefulSets(sb *strings.Builder, statefulSets *appsv1.StatefulSetList, section healthSection) {
+	sb.WriteString("### StatefulSets\n\n")
+	if !renderSectionWarning(sb, section) || statefulSets == nil {
+		return
+	}
+	issues := make([]healthIssue, 0)
+	for _, statefulSet := range statefulSets.Items {
+		desired := int32(1)
+		if statefulSet.Spec.Replicas != nil {
+			desired = *statefulSet.Spec.Replicas
+		}
+		if statefulSet.Status.ReadyReplicas < desired {
+			key := namespacedName(statefulSet.Namespace, statefulSet.Name)
+			issues = append(issues, healthIssue{key: key, text: fmt.Sprintf("**%s**: only %d/%d replica(s) ready", key, statefulSet.Status.ReadyReplicas, desired)})
+		}
+	}
+	sortHealthIssues(issues)
+	fmt.Fprintf(sb, "**Collected:** %d | **With issues:** %d\n\n", len(statefulSets.Items), len(issues))
+	renderHealthIssues(sb, issues, "No StatefulSet issues detected")
+}
+
+func renderDaemonSets(sb *strings.Builder, daemonSets *appsv1.DaemonSetList, section healthSection) {
+	sb.WriteString("### DaemonSets\n\n")
+	if !renderSectionWarning(sb, section) || daemonSets == nil {
+		return
+	}
+	issues := make([]healthIssue, 0)
+	for _, daemonSet := range daemonSets.Items {
+		if daemonSet.Status.NumberUnavailable > 0 {
+			key := namespacedName(daemonSet.Namespace, daemonSet.Name)
+			issues = append(issues, healthIssue{key: key, text: fmt.Sprintf("**%s**: %d unavailable pod(s) (ready %d/%d)", key, daemonSet.Status.NumberUnavailable, daemonSet.Status.NumberReady, daemonSet.Status.DesiredNumberScheduled)})
+		}
+	}
+	sortHealthIssues(issues)
+	fmt.Fprintf(sb, "**Collected:** %d | **With issues:** %d\n\n", len(daemonSets.Items), len(issues))
+	renderHealthIssues(sb, issues, "No DaemonSet issues detected")
+}
+
+func renderPVCs(sb *strings.Builder, pvcs *v1.PersistentVolumeClaimList, section healthSection) {
+	sb.WriteString("## Persistent Volume Claims\n\n")
+	if !renderSectionWarning(sb, section) || pvcs == nil {
+		return
+	}
+	issues := make([]healthIssue, 0)
+	for _, pvc := range pvcs.Items {
+		if pvc.Status.Phase != v1.ClaimBound {
+			key := namespacedName(pvc.Namespace, pvc.Name)
+			issues = append(issues, healthIssue{key: key, text: fmt.Sprintf("**%s**: claim phase %s", key, pvc.Status.Phase)})
+		}
+	}
+	sortHealthIssues(issues)
+	fmt.Fprintf(sb, "**Collected:** %d | **With issues:** %d\n\n", len(pvcs.Items), len(issues))
+	renderHealthIssues(sb, issues, "No persistent volume claim issues detected")
+}
+
+func renderEvents(sb *strings.Builder, events []v1.Event, section healthSection) {
+	sb.WriteString("## Recent Warning and Error Events\n\n")
+	if !renderSectionWarning(sb, section) {
+		return
+	}
+	warnings, errorsCount := 0, 0
+	for _, event := range events {
+		if event.Type == v1.EventTypeWarning {
+			warnings++
+		} else {
+			errorsCount++
+		}
+	}
+	fmt.Fprintf(sb, "**Warnings:** %d | **Errors:** %d | **Recent events:** %d\n\n", warnings, errorsCount, len(events))
+	if len(events) == 0 {
+		sb.WriteString("No recent warning or error events detected\n\n")
+		return
+	}
+	limit := healthEventRows
+	if len(events) < limit {
+		limit = len(events)
+	}
+	for _, event := range events[:limit] {
+		object := namespacedName(event.Namespace, event.InvolvedObject.Name)
+		if event.InvolvedObject.Kind != "" {
+			object = event.InvolvedObject.Kind + " " + object
+		}
+		fmt.Fprintf(sb, "- **%s** (%s, %s): %s\n", object, event.Reason, eventTime(event).Format(time.RFC3339), truncateText(event.Message, healthMessageRunes))
+	}
+	if omitted := len(events) - limit; omitted > 0 {
+		fmt.Fprintf(sb, "- %d additional recent event(s) omitted from the report\n", omitted)
+	}
+	sb.WriteString("\n")
+}
+
+func renderSectionWarning(sb *strings.Builder, section healthSection) bool {
+	if section.skipped != "" {
+		fmt.Fprintf(sb, "Not collected: %s\n\n", section.skipped)
+		return false
+	}
+	if section.err != nil && section.itemCount == 0 {
+		fmt.Fprintf(sb, "Unavailable: %s\n\n", truncateText(section.err.Error(), healthMessageRunes))
+		return false
+	}
+	if section.truncated || section.err != nil {
+		sb.WriteString("Collection is incomplete; findings are limited to collected objects.\n\n")
+	}
+	return true
+}
+
+type healthIssue struct {
+	key  string
+	text string
+}
+
+func sortHealthIssues(issues []healthIssue) {
+	sort.Slice(issues, func(i, j int) bool { return issues[i].key < issues[j].key })
+}
+
+func renderHealthIssues(sb *strings.Builder, issues []healthIssue, noIssues string) {
+	if len(issues) == 0 {
+		sb.WriteString(noIssues + "\n\n")
+		return
+	}
+	limit := healthIssueRows
+	if len(issues) < limit {
+		limit = len(issues)
+	}
+	for _, issue := range issues[:limit] {
+		fmt.Fprintf(sb, "- %s\n", issue.text)
+	}
+	if omitted := len(issues) - limit; omitted > 0 {
+		fmt.Fprintf(sb, "- %d additional issue(s) omitted from the report\n", omitted)
+	}
+	sb.WriteString("\n")
+}
+
+func healthReason(prefix, message string) string {
+	message = truncateText(message, healthMessageRunes)
+	if message == "" {
+		return prefix
+	}
+	return prefix + ": " + message
+}
+
+func namespacedName(namespace, name string) string {
+	if namespace == "" {
+		return name
+	}
+	return namespace + "/" + name
+}
+
+func truncateText(text string, limit int) string {
+	text = strings.Join(strings.Fields(text), " ")
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit]) + "..."
+}
+
+func truncatePrompt(prompt string) string {
+	runes := []rune(prompt)
+	if len(runes) <= healthPromptRunes {
+		return prompt
+	}
+	trailer := "\n\nReport output was truncated at the health-check size limit.\n"
+	return string(runes[:healthPromptRunes-len([]rune(trailer))]) + trailer
 }

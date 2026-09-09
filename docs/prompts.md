@@ -63,28 +63,23 @@ The Kubernetes MCP Server includes several built-in prompts that are always avai
 
 ### `cluster-health-check`
 
-Performs a comprehensive health assessment of your Kubernetes or OpenShift cluster.
+Assesses cluster-wide Kubernetes health using bounded, concurrent diagnostic collection.
+The prompt limits each resource list and the final report, so a large or partially
+unavailable cluster produces actionable partial evidence rather than an unbounded prompt.
 
 **Arguments:**
-- `namespace` (optional): Limit the health check to a specific namespace. Default: all namespaces.
 - `check_events` (optional): Include recent warning/error events in the analysis. Values: `true` or `false`. Default: `true`.
 
 **What it checks:**
 - **Nodes**: Status and conditions (Ready, MemoryPressure, DiskPressure, etc.)
-- **Cluster Operators** (OpenShift only): Available and degraded status
 - **Pods**: Phase, container statuses, restart counts, and common issues (CrashLoopBackOff, ImagePullBackOff, etc.)
 - **Workload Controllers**: Deployments, StatefulSets, and DaemonSets replica status
 - **Persistent Volume Claims**: Binding status
-- **Events**: Recent warning and error events from the last hour
+- **Events**: Recent warning and error events from the last hour in a bounded set of system namespaces
 
 **Example usage:**
 ```
 Check the health of my cluster
-```
-
-Or with specific parameters:
-```
-Check the health of namespace production
 ```
 
 You can also skip event checking for faster results:
@@ -92,7 +87,23 @@ You can also skip event checking for faster results:
 Check the health of my cluster without events
 ```
 
-The prompt gathers comprehensive diagnostic data and presents it to the LLM for analysis, which will provide:
+### `namespace-health-check`
+
+Assesses workload health within one required namespace. It checks Pods, Deployments,
+StatefulSets, DaemonSets, PersistentVolumeClaims, and optionally recent warning/error
+events. It never falls back to a cluster-wide scan if the requested namespace is missing
+or inaccessible.
+
+**Arguments:**
+- `namespace` (required): Namespace to assess.
+- `check_events` (optional): Include recent warning/error events. Values: `true` or `false`. Default: `true`.
+
+**Example usage:**
+```
+Check the health of namespace production
+```
+
+Both prompts gather diagnostic data and present it to the LLM for analysis, which will provide:
 1. Overall health status (Healthy, Warning, or Critical)
 2. Critical issues requiring immediate attention
 3. Warnings and recommendations

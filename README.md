@@ -1016,8 +1016,11 @@ Silences are used to temporarily mute alerts based on label matchers. This tool 
 
 <summary>core</summary>
 
-- **cluster-health-check** - Perform comprehensive health assessment of Kubernetes/OpenShift cluster
-  - `namespace` (`string`) - Optional namespace to limit health check scope (default: all namespaces)
+- **cluster-health-check** - Assess Kubernetes cluster health with bounded diagnostic collection
+  - `check_events` (`string`) - Include recent warning/error events (true/false, default: true)
+
+- **namespace-health-check** - Assess Kubernetes workload health within one namespace
+  - `namespace` (`string`) **(required)** - Namespace to assess
   - `check_events` (`string`) - Include recent warning/error events (true/false, default: true)
 
 </details>
