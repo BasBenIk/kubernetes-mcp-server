@@ -150,7 +150,7 @@ func namespaceHealthCheckHandler(params api.PromptHandlerParams) (*api.PromptCal
 }
 
 func runHealthCheck(params api.PromptHandlerParams, scope healthScope) (*api.PromptCallResult, error) {
-	if err := params.Context.Err(); err != nil {
+	if err := params.Err(); err != nil {
 		return nil, err
 	}
 

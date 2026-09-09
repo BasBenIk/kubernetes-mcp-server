@@ -148,7 +148,7 @@ func (s *HealthCheckPromptSuite) TestHealthCheckOutputIsBoundedAndOrdered() {
 }
 
 func (s *HealthCheckPromptSuite) TestHealthCheckReportsPartialCollection() {
-	s.McpClient.Close()
+	s.Close()
 	s.McpClient = nil
 	s.Cfg.DeniedResources = nil
 	s.Require().NoError(toml.Unmarshal([]byte(`
