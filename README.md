@@ -1,25 +1,65 @@
 # Kubernetes MCP Server
 
+This repository is a fork of the [Containers Kubernetes MCP Server](https://github.com/containers/kubernetes-mcp-server).
+It keeps the upstream project name and core functionality while focusing this fork
+on safe, reliable, long-running Kubernetes inspection and bounded diagnostics.
+
 [![GitHub License](https://img.shields.io/github/license/containers/kubernetes-mcp-server)](https://github.com/containers/kubernetes-mcp-server/blob/main/LICENSE)
 [![npm](https://img.shields.io/npm/v/kubernetes-mcp-server)](https://www.npmjs.com/package/kubernetes-mcp-server)
 [![PyPI - Version](https://img.shields.io/pypi/v/kubernetes-mcp-server)](https://pypi.org/project/kubernetes-mcp-server/)
 [![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/containers/kubernetes-mcp-server?sort=semver)](https://github.com/containers/kubernetes-mcp-server/releases/latest)
 [![Build](https://github.com/containers/kubernetes-mcp-server/actions/workflows/build.yaml/badge.svg)](https://github.com/containers/kubernetes-mcp-server/actions/workflows/build.yaml)
 
-[✨ Features](#features) | [🚀 Getting Started](#getting-started) | [🎥 Demos](#demos) | [⚙️ Configuration](#configuration) | [🛠️ Tools](#tools-and-functionalities) | [💬 Community](#community) | [🧑‍💻 Development](#development)
+[Features](#features) | [Getting Started](#getting-started) | [Configuration](#configuration) | [Tools](#tools-and-functionalities) | [Community](#community) | [Development](#development)
 
-https://github.com/user-attachments/assets/be2b67b3-fc1c-4d11-ae46-93deba8ed98e
+## Why this fork exists
 
-## ✨ Features <a id="features"></a>
+This fork is intended for users who want a Kubernetes MCP server that is safe to
+run continuously against local or multi-cluster kubeconfig environments. The
+primary goals are:
+
+- Make read-only mode a strong safety boundary, including preventing accidental
+  exposure of reusable kubeconfig credentials.
+- Keep diagnostic prompts bounded and useful on large, slow, or partially
+  unavailable clusters.
+- Avoid delaying startup because an optional kubeconfig context is unreachable.
+- Reduce unnecessary output through secret redaction, pagination, and status-only
+  resource views.
+- Improve reliability for persistent Streamable HTTP deployments.
+- Provide focused operational additions without changing the upstream project name.
+
+## What this fork adds
+
+| Area | Addition |
+| --- | --- |
+| Read-only security | Hides credential-bearing `configuration_view` and rejects direct write-tool invocation in read-only mode. |
+| Diagnostics | Adds bounded `cluster-health-check` and namespace-scoped `namespace-health-check` prompts with deadlines, limits, stable ordering, and partial-result reporting. |
+| Multi-cluster reliability | Initializes optional kubeconfig contexts lazily so unreachable contexts do not delay server startup. |
+| Output safety | Supports Secret redaction, resource-list pagination, and status-only resource retrieval. |
+| HTTP reliability | Releases stateful Streamable HTTP session state after clients disconnect. |
+| Operational tooling | Adds Helm release history, Argo CD application fleet status, and optional context-aware metrics integration. |
+| Evaluation | Adds read-only live evaluations, direct non-mutation tests, and unreachable-target regression coverage. |
+
+See [docs/added-features.md](docs/added-features.md) for details and examples.
+
+## Relationship to upstream
+
+The upstream project remains the source of the general Kubernetes MCP server
+implementation and its broader toolset ecosystem. This fork is maintained as a
+focused set of safety, reliability, diagnostics, and local-operations changes.
+Upstream documentation and project links are retained where they describe the
+shared functionality; fork-specific behavior is documented in this repository.
+
+## Features <a id="features"></a>
 
 A powerful and flexible Kubernetes [Model Context Protocol (MCP)](https://blog.marcnuri.com/model-context-protocol-mcp-introduction) server implementation with support for **Kubernetes** and **OpenShift**.
 
-- **✅ Configuration**:
+- **Configuration**:
   - Automatically detect changes in the Kubernetes configuration and update the MCP server.
   - **View** and manage the current [Kubernetes `.kube/config`](https://blog.marcnuri.com/where-is-my-default-kubeconfig-file) or in-cluster configuration.
-- **✅ Generic Kubernetes Resources**: Perform operations on **any** Kubernetes or OpenShift resource.
+- **Generic Kubernetes Resources**: Perform operations on **any** Kubernetes or OpenShift resource.
   - Any CRUD operation (Create or Update, Get, List, Delete).
-- **✅ Pods**: Perform Pod-specific operations.
+- **Pods**: Perform Pod-specific operations.
   - **List** pods in all namespaces or in a specific namespace.
   - **Get** a pod by name from the specified namespace.
   - **Delete** a pod by name from the specified namespace.
@@ -27,19 +67,19 @@ A powerful and flexible Kubernetes [Model Context Protocol (MCP)](https://blog.m
   - **Top** gets resource usage metrics for all pods or a specific pod in the specified namespace.
   - **Exec** into a pod and run a command.
   - **Run** a container image in a pod and optionally expose it.
-- **✅ Namespaces**: List Kubernetes Namespaces.
-- **✅ Events**: View Kubernetes events in all namespaces or in a specific namespace.
-- **✅ Projects**: List OpenShift Projects.
-- **☸️ Helm**:
+- **Namespaces**: List Kubernetes Namespaces.
+- **Events**: View Kubernetes events in all namespaces or in a specific namespace.
+- **Projects**: List OpenShift Projects.
+- **Helm**:
   - **Install** a Helm chart in the current or provided namespace.
   - **List** Helm releases in all namespaces or in a specific namespace.
   - **Uninstall** a Helm release in the current or provided namespace.
-- **🔧 Tekton**: Tekton-specific operations that complement generic Kubernetes resource management.
+- **Tekton**: Tekton-specific operations that complement generic Kubernetes resource management.
   - **Pipeline**: Start a Tekton Pipeline by creating a PipelineRun.
   - **PipelineRun**: Restart, cancel, troubleshoot, and retrieve PipelineRun logs.
   - **Task**: Start a Tekton Task by creating a TaskRun.
   - **TaskRun**: Restart a TaskRun with the same spec, and retrieve TaskRun logs via pod resolution.
-- **🔭 Observability**: Optional OpenTelemetry distributed tracing and metrics with custom sampling rates. Includes `/stats` endpoint for real-time statistics. See [OTEL.md](docs/OTEL.md).
+- **Observability**: Optional OpenTelemetry distributed tracing and metrics with custom sampling rates. Includes `/stats` endpoint for real-time statistics. See [OTEL.md](docs/OTEL.md).
 
 Unlike other Kubernetes MCP server implementations, this **IS NOT** just a wrapper around `kubectl` or `helm` command-line tools.
 It is a **Go-based native implementation** that interacts directly with the Kubernetes API server.
@@ -47,15 +87,15 @@ It is a **Go-based native implementation** that interacts directly with the Kube
 There is **NO NEED** for external dependencies or tools to be installed on the system.
 If you're using the native binaries you don't need to have Node or Python installed on your system.
 
-- **✅ Lightweight**: The server is distributed as a single native binary for Linux, macOS, and Windows.
-- **✅ High-Performance / Low-Latency**: Directly interacts with the Kubernetes API server without the overhead of calling and waiting for external commands.
-- **✅ Multi-Cluster**: Can interact with multiple Kubernetes clusters simultaneously (as defined in your kubeconfig files).
-- **✅ Cross-Platform**: Available as a native binary for Linux, macOS, and Windows, as well as an npm package, a Python package, and container/Docker image.
-- **✅ Configurable**: Supports [command-line arguments](#configuration), [TOML configuration files](docs/configuration.md), and environment variables.
-- **✅ Well tested**: The server has an extensive test suite to ensure its reliability and correctness across different Kubernetes environments.
-- **📚 Documentation**: Comprehensive [user documentation](docs/) including setup guides, configuration reference, and observability.
+- **Lightweight**: The server is distributed as a single native binary for Linux, macOS, and Windows.
+- **High-Performance / Low-Latency**: Directly interacts with the Kubernetes API server without the overhead of calling and waiting for external commands.
+- **Multi-Cluster**: Can interact with multiple Kubernetes clusters simultaneously (as defined in your kubeconfig files).
+- **Cross-Platform**: Available as a native binary for Linux, macOS, and Windows, as well as an npm package, a Python package, and container/Docker image.
+- **Configurable**: Supports [command-line arguments](#configuration), [TOML configuration files](docs/configuration.md), and environment variables.
+- **Well tested**: The server has an extensive test suite to ensure its reliability and correctness across different Kubernetes environments.
+- **Documentation**: Comprehensive [user documentation](docs/) including setup guides, configuration reference, and observability.
 
-## 🚀 Getting Started <a id="getting-started"></a>
+## Getting Started <a id="getting-started"></a>
 
 ### Requirements
 
@@ -143,31 +183,7 @@ extensions:
       - kubernetes-mcp-server@latest
 ```
 
-## 🎥 Demos <a id="demos"></a>
-
-### Diagnosing and automatically fixing an OpenShift Deployment
-
-Demo showcasing how Kubernetes MCP server is leveraged by Claude Desktop to automatically diagnose and fix a deployment in OpenShift without any user assistance.
-
-https://github.com/user-attachments/assets/a576176d-a142-4c19-b9aa-a83dc4b8d941
-
-### _Vibe Coding_ a simple game and deploying it to OpenShift
-
-In this demo, I walk you through the process of _Vibe Coding_ a simple game using VS Code and how to leverage [Podman MCP server](https://github.com/manusa/podman-mcp-server) and Kubernetes MCP server to deploy it to OpenShift.
-
-<a href="https://www.youtube.com/watch?v=l05jQDSrzVI" target="_blank">
- <img src="docs/images/vibe-coding.jpg" alt="Vibe Coding: Build & Deploy a Game on Kubernetes" width="240"  />
-</a>
-
-### Supercharge GitHub Copilot with Kubernetes MCP Server in VS Code - One-Click Setup!
-
-In this demo, I'll show you how to set up Kubernetes MCP server in VS code just by clicking a link.
-
-<a href="https://youtu.be/AI4ljYMkgtA" target="_blank">
- <img src="docs/images/kubernetes-mcp-server-github-copilot.jpg" alt="Supercharge GitHub Copilot with Kubernetes MCP Server in VS Code - One-Click Setup!" width="240"  />
-</a>
-
-## ⚙️ Configuration <a id="configuration"></a>
+## Configuration <a id="configuration"></a>
 
 The Kubernetes MCP server can be configured using command line (CLI) arguments.
 
@@ -201,7 +217,7 @@ uvx kubernetes-mcp-server@latest --help
 | `--read-only`             | If set, the MCP server will run in read-only mode, meaning it will not allow any write operations (create, update, delete) on the Kubernetes cluster. This is useful for debugging or inspecting the cluster without making changes.                                                          |
 | `--disable-destructive`   | If set, the MCP server will disable all destructive operations (delete, update, etc.) on the Kubernetes cluster. This is useful for debugging or inspecting the cluster without accidentally making changes. This option has no effect when `--read-only` is used.                            |
 | `--stateless`             | If set, the MCP server will run in stateless mode, disabling tool and prompt change notifications. This is useful for container deployments, load balancing, and serverless environments where maintaining client state is not desired.                                                       |
-| `--toolsets`              | Comma-separated list of toolsets to enable. Check the [🛠️ Tools and Functionalities](#tools-and-functionalities) section for more information.                                                                                                                                                |
+| `--toolsets`              | Comma-separated list of toolsets to enable. Check the [Tools and Functionalities](#tools-and-functionalities) section for more information.                                                                                                                                                |
 | `--disable-multi-cluster` | If set, the MCP server will disable multi-cluster support and will only use the current context from the kubeconfig file. This is useful if you want to restrict the MCP server to a single cluster.                                                                                          |
 | `--cluster-provider`      | Cluster provider strategy to use (one of: kubeconfig, in-cluster, kcp, disabled). If not set, the server will auto-detect based on the environment.                                                                                                                                           |
 
@@ -244,7 +260,7 @@ For comprehensive TOML configuration documentation, including:
 
 See the **[Configuration Reference](docs/configuration.md)**.
 
-## 📊 MCP Logging <a id="mcp-logging"></a>
+## MCP Logging <a id="mcp-logging"></a>
 
 The server supports the MCP logging capability, allowing clients to receive debugging information via structured log messages.
 Kubernetes API errors are automatically categorized and logged to clients with appropriate severity levels.
@@ -252,7 +268,7 @@ Sensitive data (tokens, keys, passwords, cloud credentials) is automatically red
 
 See the **[MCP Logging Guide](docs/logging.md)**.
 
-## 🛠️ Tools and Functionalities <a id="tools-and-functionalities"></a>
+## Tools and Functionalities <a id="tools-and-functionalities"></a>
 
 The Kubernetes MCP server supports enabling or disabling specific groups of tools and functionalities (tools, resources, prompts, and so on) via the `--toolsets` command-line flag or `toolsets` configuration option.
 This allows you to control which Kubernetes functionalities are available to your AI tools.
@@ -1120,13 +1136,13 @@ helm install kubernetes-mcp-server oci://ghcr.io/containers/charts/kubernetes-mc
 
 For configuration options including OAuth, telemetry, and resource limits, see the [chart README](./charts/kubernetes-mcp-server/README.md) and [values.yaml](./charts/kubernetes-mcp-server/values.yaml).
 
-## 💬 Community <a id="community"></a>
+## Community <a id="community"></a>
 
 Join the conversation and connect with other users and contributors:
 
 - [Slack](https://cloud-native.slack.com/archives/C0AHQJVR725) - Ask questions, share feedback, and discuss the Kubernetes MCP server in the `#kubernetes-mcp-server` channel on the CNCF Slack workspace. If you're not already a member, you can [request an invitation](https://slack.cncf.io).
 
-## 🧑‍💻 Development <a id="development"></a>
+## Development <a id="development"></a>
 
 ### Running with mcp-inspector
 
