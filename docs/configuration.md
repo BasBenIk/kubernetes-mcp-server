@@ -772,6 +772,20 @@ guardrails = "all"
 
 `prometheus_url` is required. Use `auth_mode = "header"` to forward the incoming MCP authorization header, or `auth_mode = "kubeconfig"` for local bearer-token authentication. When `require_tls` is enabled, configured endpoints must use HTTPS.
 
+For multiple kubeconfig contexts, keep shared authentication and guardrail settings in the toolset configuration and assign endpoints by context. The selected MCP `context` determines which endpoint pair is used. Per-context endpoints are suitable for local `kubectl port-forward` URLs or stable in-cluster/external observability gateways.
+
+```toml
+[observability_metrics_contexts.cpt-hybrid-production]
+prometheus_url = "http://127.0.0.1:19090"
+alertmanager_url = "http://127.0.0.1:19093"
+
+[observability_metrics_contexts.cpt-hybrid-staging]
+prometheus_url = "http://127.0.0.1:29090"
+alertmanager_url = "http://127.0.0.1:29093"
+```
+
+Contexts without an entry use the default URLs under `[toolset_configs."observability/metrics"]`. Keep each port forward running for the lifetime of the MCP server session. When using `require_tls = true`, use HTTPS observability gateways instead of local HTTP port forwards.
+
 By default, Helm install and uninstall operations wait up to five minutes. Set `timeout` below an MCP client's tool-call timeout so the client receives Helm's diagnostic error instead of a transport timeout. Set `wait = false` to return after creating release resources and poll their readiness separately. `wait` and `uninstall_wait` are independent so non-blocking installs do not require racing release deletion during an immediate reinstall.
 
 Refer to individual toolset documentation for available options:

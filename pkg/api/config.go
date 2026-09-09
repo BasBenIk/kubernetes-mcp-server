@@ -63,6 +63,19 @@ type DeniedResourcesProvider interface {
 	GetDeniedResources() []GroupVersionKind
 }
 
+// ObservabilityMetricsEndpoint identifies the Prometheus and Alertmanager
+// endpoints associated with one Kubernetes target.
+type ObservabilityMetricsEndpoint struct {
+	PrometheusURL   string `toml:"prometheus_url"`
+	AlertmanagerURL string `toml:"alertmanager_url"`
+}
+
+// ObservabilityMetricsEndpointsProvider provides per-target observability
+// endpoints without coupling the core API to a particular metrics toolset.
+type ObservabilityMetricsEndpointsProvider interface {
+	GetObservabilityMetricsEndpoints() map[string]ObservabilityMetricsEndpoint
+}
+
 type StsConfigProvider interface {
 	GetStsClientId() string
 	GetStsClientSecret() string

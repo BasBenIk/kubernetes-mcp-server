@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/containers/kubernetes-mcp-server/pkg/api"
 	"github.com/containers/kubernetes-mcp-server/pkg/config"
@@ -32,9 +33,11 @@ func (t *Toolset) GetTools(provider api.FilteringProvider) []api.ServerTool {
 	for i := range tools {
 		handler := tools[i].Handler
 		tools[i].Handler = func(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
-			if err := validateMetricsConfig(params); err != nil {
+			metricsConfig, err := metricsConfigForTarget(params)
+			if err != nil {
 				return api.NewToolCallResult("", err), nil
 			}
+			params.BaseConfig = metricsConfig
 			return handler(params)
 		}
 	}
@@ -47,23 +50,63 @@ func (t *Toolset) GetResources() []api.ServerResource { return nil }
 
 func (t *Toolset) GetResourceTemplates() []api.ServerResourceTemplate { return nil }
 
-func validateMetricsConfig(params api.ToolHandlerParams) error {
+type metricsConfigOverride struct {
+	api.BaseConfig
+	metricsConfig *obsmetricsconfig.Config
+}
+
+func (c metricsConfigOverride) GetToolsetConfig(name string) (api.ExtendedConfig, bool) {
+	if name == obsmetricsconfig.ToolsetName {
+		return c.metricsConfig, true
+	}
+	return c.BaseConfig.GetToolsetConfig(name)
+}
+
+func metricsConfigForTarget(params api.ToolHandlerParams) (metricsConfigOverride, error) {
 	extended, ok := params.GetToolsetConfig(obsmetricsconfig.ToolsetName)
 	if !ok {
-		return errors.New("observability metrics configuration is required")
+		return metricsConfigOverride{}, errors.New("observability metrics configuration is required")
 	}
-	metricsConfig, ok := extended.(*obsmetricsconfig.Config)
-	if !ok || metricsConfig.PrometheusURL == "" {
-		return errors.New("observability metrics prometheus_url is required")
+	configured, ok := extended.(*obsmetricsconfig.Config)
+	if !ok {
+		return metricsConfigOverride{}, errors.New("invalid observability metrics configuration")
+	}
+	metricsConfig := *configured
+	target := ""
+	if provider, ok := params.FilteringProvider.(api.TargetProvider); ok {
+		target = provider.GetDefaultTarget()
+		if value, found := params.GetArguments()[provider.GetTargetParameterName()]; found {
+			selected, ok := value.(string)
+			if !ok {
+				return metricsConfigOverride{}, fmt.Errorf("%s parameter must be a string", provider.GetTargetParameterName())
+			}
+			target = selected
+		}
+	}
+	if provider, ok := params.BaseConfig.(api.ObservabilityMetricsEndpointsProvider); ok {
+		if endpoint, found := provider.GetObservabilityMetricsEndpoints()[target]; found {
+			if endpoint.PrometheusURL != "" {
+				metricsConfig.PrometheusURL = endpoint.PrometheusURL
+			}
+			if endpoint.AlertmanagerURL != "" {
+				metricsConfig.AlertmanagerURL = endpoint.AlertmanagerURL
+			}
+		}
+	}
+	if metricsConfig.PrometheusURL == "" {
+		return metricsConfigOverride{}, fmt.Errorf("observability metrics prometheus_url is required for target %q", target)
 	}
 	if !params.IsRequireTLS() {
-		return nil
+		return metricsConfigOverride{BaseConfig: params.BaseConfig, metricsConfig: &metricsConfig}, nil
 	}
 	if metricsConfig.Insecure {
-		return errors.New("require_tls is enabled but observability metrics insecure is true")
+		return metricsConfigOverride{}, errors.New("require_tls is enabled but observability metrics insecure is true")
 	}
-	return config.ValidateURLsRequireTLS(map[string]string{
+	if err := config.ValidateURLsRequireTLS(map[string]string{
 		"observability metrics prometheus_url":   metricsConfig.PrometheusURL,
 		"observability metrics alertmanager_url": metricsConfig.AlertmanagerURL,
-	})
+	}); err != nil {
+		return metricsConfigOverride{}, err
+	}
+	return metricsConfigOverride{BaseConfig: params.BaseConfig, metricsConfig: &metricsConfig}, nil
 }

@@ -40,6 +40,9 @@ type ToolOverride struct {
 // It allows to configure server specific settings and tools to be enabled or disabled.
 type StaticConfig struct {
 	DeniedResources []api.GroupVersionKind `toml:"denied_resources"`
+	// ObservabilityMetricsContexts overrides Prometheus and Alertmanager URLs
+	// for named kubeconfig contexts when observability/metrics is enabled.
+	ObservabilityMetricsContexts map[string]api.ObservabilityMetricsEndpoint `toml:"observability_metrics_contexts,omitempty"`
 	// RedactSecrets controls Secret value redaction in generic resource outputs.
 	// Valid values are "", "opaque", and "hashed".
 	RedactSecrets string `toml:"redact_secrets,omitempty"`
@@ -425,6 +428,10 @@ func (c *StaticConfig) GetDeniedResources() []api.GroupVersionKind {
 
 func (c *StaticConfig) GetRedactSecrets() string {
 	return c.RedactSecrets
+}
+
+func (c *StaticConfig) GetObservabilityMetricsEndpoints() map[string]api.ObservabilityMetricsEndpoint {
+	return c.ObservabilityMetricsContexts
 }
 
 func (c *StaticConfig) GetKubeConfigPath() string {
