@@ -22,6 +22,7 @@ JQ_ASSET = jq-$(JQ_OS)-$(JQ_ARCH)$(if $(filter windows,$(JQ_GO_OS)),.exe,)
 
 # High-level knobs for local single-suite runs, e.g.:
 #   make run-evals SUITE=kubevirt AGENT=acp-anthropic MODEL=sonnet
+#   make run-server READ_ONLY=true TOOLSETS=core,config
 # AGENT selects the agent directory under evals/, SUITE selects the task suite
 # label, and MODEL sets ANTHROPIC_MODEL for ACP agents (builtin agents ignore it).
 # Available agents: builtin-openai, builtin-anthropic, builtin-google,
@@ -100,7 +101,7 @@ diff-evals: mcpchecker ## Diff latest mcpchecker results against baseline
 .PHONY: run-server
 run-server: build ## Start MCP server in background and wait for health check
 	@echo "Starting MCP server on port $(MCP_PORT)..."
-	./$(BINARY_NAME) --port $(MCP_PORT) $(if $(TOOLSETS),--toolsets "$(TOOLSETS)") --config-dir $(MCP_CONFIG_DIR) $(if $(MCP_EVAL_KUBECONFIG),--kubeconfig "$(MCP_EVAL_KUBECONFIG)") & echo $$! > .mcp-server.pid
+	./$(BINARY_NAME) --port $(MCP_PORT) $(if $(READ_ONLY),--read-only) $(if $(TOOLSETS),--toolsets "$(TOOLSETS)") --config-dir $(MCP_CONFIG_DIR) $(if $(MCP_EVAL_KUBECONFIG),--kubeconfig "$(MCP_EVAL_KUBECONFIG)") & echo $$! > .mcp-server.pid
 	@echo "MCP server started with PID $$(cat .mcp-server.pid)"
 	@echo "Waiting for MCP server to be ready..."
 	@elapsed=0; \

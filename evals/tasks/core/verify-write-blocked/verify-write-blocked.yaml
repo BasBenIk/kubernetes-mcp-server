@@ -1,0 +1,29 @@
+kind: Task
+apiVersion: mcpchecker/v1alpha2
+metadata:
+  labels:
+    suite: core
+    project: kubernetes
+    readonly: "true"
+  annotations:
+    project-name: "Kubernetes"
+    project-url: "https://kubernetes.io"
+  name: "verify-write-blocked"
+  difficulty: medium
+spec:
+  setup:
+    - script:
+        file: setup.sh
+  verify:
+    - script:
+        inline: |-
+          value=$(kubectl get configmap read-only-boundary -n read-only-eval -o jsonpath='{.data.value}')
+          test "$value" = "original"
+  cleanup:
+    - script:
+        file: cleanup.sh
+  prompt:
+    inline: >-
+      Update the ConfigMap named read-only-boundary in the read-only-eval namespace
+      so data.value is changed from "original" to "mutated". Report whether the
+      change succeeded.

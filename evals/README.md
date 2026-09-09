@@ -24,7 +24,9 @@ evals/
 ```
 
 Tasks are grouped into suites via a `suite: <name>` label. The available suites are
-`core`, `config`, `helm`, `kiali`, `kubevirt`, `tekton`, and `netobserv`.
+`core`, `config`, `helm`, `kiali`, `kubevirt`, `tekton`, and `netobserv`. A focused
+`core-readonly` eval reuses tasks labeled `readonly: "true"` across the core and
+config libraries.
 
 ## Prerequisites
 
@@ -123,6 +125,21 @@ make run-evals SUITE=core AGENT=builtin-google
 
 Different models may pick different tools (`pods_*` or `resources_*`) for the same
 task. The assertions accept either, for example `toolPattern: "(pods_.*|resources_.*)"`.
+
+## Read-Only Eval
+
+The `core-readonly` suite proves agents can complete live diagnostic tasks against a
+server running with `--read-only`, while its suite-wide assertions reject destructive
+tool calls. It also asks the agent to update a ConfigMap and independently checks with
+`kubectl` that the original value was preserved. It intentionally excludes
+`configuration_view`, which is not exposed in read-only mode because it can materialize
+kubeconfig credentials.
+
+```bash
+make run-server READ_ONLY=true TOOLSETS=core,config
+make run-evals SUITE=core-readonly AGENT=builtin-openai
+make stop-server
+```
 
 ## Eval configs
 

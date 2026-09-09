@@ -33,6 +33,10 @@ Most subdirectories under `core/`, `config/`, `helm/`, `kiali/`, `kubevirt/`, `n
 
 Well-scoped, deterministic tasks make it easier to compare agents and regressions over time, so keep inputs minimal, outputs explicit, and always clean up what you create.
 
+## Read-Only Tasks
+
+Set `readonly: "true"` alongside the normal `suite` and `project` labels when a task needs only tools available under `--read-only`. The `core-readonly` eval selects these tasks and rejects destructive tool calls suite-wide. A task that requests a write in that suite must verify the cluster state independently, rather than trusting the agent's reported outcome.
+
 ## Adding a New Task Stack
 
 When a new MCP toolset lands, keep its evaluations isolated by creating a sibling directory under `tasks/` named after the toolset (`tasks/<name>`, etc.). Populate it with:

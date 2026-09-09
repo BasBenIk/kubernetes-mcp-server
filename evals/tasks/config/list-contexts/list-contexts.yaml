@@ -4,6 +4,7 @@ metadata:
   labels:
     suite: config
     project: kubernetes
+    readonly: "true"
   annotations:
     project-name: "Kubernetes"
     project-url: "https://kubernetes.io"
