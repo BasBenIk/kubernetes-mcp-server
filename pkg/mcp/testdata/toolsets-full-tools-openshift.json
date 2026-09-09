@@ -28,7 +28,7 @@
       "destructiveHint": false,
       "idempotentHint": false,
       "openWorldHint": true,
-      "readOnlyHint": true,
+      "readOnlyHint": false,
       "title": "Configuration: View"
     },
     "description": "Get the current Kubernetes configuration content as a kubeconfig YAML",

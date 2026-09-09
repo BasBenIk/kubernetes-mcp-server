@@ -98,8 +98,10 @@ func initConfiguration() []api.ServerTool {
 					},
 				},
 				Annotations: api.ToolAnnotations{
-					Title:           "Configuration: View",
-					ReadOnlyHint:    ptr.To(true),
+					Title: "Configuration: View",
+					// FlattenConfig can materialize reusable kubeconfig credentials.
+					// Keep this unavailable when read_only is the safety boundary.
+					ReadOnlyHint:    ptr.To(false),
 					DestructiveHint: ptr.To(false),
 					OpenWorldHint:   ptr.To(true),
 				},

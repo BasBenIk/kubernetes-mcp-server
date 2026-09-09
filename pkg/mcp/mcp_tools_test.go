@@ -54,6 +54,12 @@ func (s *McpToolProcessingSuite) TestReadOnly() {
 				"Tool %s is destructive but should not be in read-only mode", tool.Name)
 		}
 	})
+	s.Run("ListTools does not expose credential-bearing kubeconfig output", func() {
+		for _, tool := range tools.Tools {
+			s.NotEqual("configuration_view", tool.Name,
+				"configuration_view can expose reusable kubeconfig credentials")
+		}
+	})
 }
 
 func (s *McpToolProcessingSuite) TestDisableDestructive() {
