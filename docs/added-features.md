@@ -269,6 +269,57 @@ omitted target from silently running against the default cluster.
 Use the target-list tool, normally `contexts_list`, to discover valid context
 names.
 
+Unselected kubeconfig contexts are initialized lazily. An unreachable optional
+context therefore does not prevent the server from starting; it only affects a
+request that explicitly selects that context.
+
+## Read-Only Safety
+
+`read_only = true` is a hard tool-surface boundary. Only tools explicitly
+marked read-only are exposed, and calls to hidden write tools are rejected even
+if a client invokes one directly without first listing tools.
+
+`configuration_view` is deliberately excluded from read-only mode. Flattened
+kubeconfig output can include reusable client credentials, so viewing it is not
+safe merely because it does not modify a cluster. Use
+`configuration_contexts_list` to inspect context names and API server URLs
+without exposing kubeconfig authentication material.
+
+The `core-readonly` mcpchecker suite exercises live diagnostic tasks against a
+read-only server. It includes an attempted ConfigMap mutation and verifies the
+cluster state independently with `kubectl`.
+
+```shell
+make run-server READ_ONLY=true TOOLSETS=core,config
+make run-evals SUITE=core-readonly AGENT=builtin-openai
+make stop-server
+```
+
+## Bounded Health Checks
+
+Use `cluster-health-check` for a concise cluster-wide workload assessment, or
+`namespace-health-check` when investigation should remain within one namespace.
+Both prompts accept `check_events=false` to skip recent event collection.
+
+```text
+cluster-health-check(check_events="false")
+namespace-health-check(namespace="payments")
+```
+
+The health prompts use a 15-second total collection budget, bounded resource
+lists, at most six concurrent Kubernetes API calls, and capped event fan-out.
+Their reports are deterministically ordered and constrained to 24,000 runes.
+When a request is denied, times out, or reaches a collection cap, the report
+labels that section incomplete or unavailable rather than implying that it is
+healthy. A missing or inaccessible namespace never falls back to a cluster-wide
+scan.
+
+## HTTP Session Lifecycle
+
+The Streamable HTTP MCP transport uses an upstream Go SDK fix that removes
+server-side session state after clients disconnect. This prevents stale
+stateful sessions from accumulating in persistent HTTP deployments.
+
 ## Reliability Fixes
 
 Two operational fixes apply automatically and need no configuration:
