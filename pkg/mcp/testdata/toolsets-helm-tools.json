@@ -1,5 +1,40 @@
 [
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "resource": "secrets"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "resource": "configmaps"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": true,
@@ -34,6 +69,14 @@
     "title": "Helm: History"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "unbounded": {
+          "reason": "Permissions depend on resources contained in the referenced Helm chart"
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -71,6 +114,41 @@
     "title": "Helm: Install"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "all": true
+              },
+              "target": {
+                "resource": {
+                  "resource": "secrets"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            },
+            {
+              "namespace": {
+                "all": true
+              },
+              "target": {
+                "resource": {
+                  "resource": "configmaps"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -96,6 +174,14 @@
     "title": "Helm: List"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "unbounded": {
+          "reason": "Permissions depend on resources contained in the installed Helm release"
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": true,
       "idempotentHint": true,

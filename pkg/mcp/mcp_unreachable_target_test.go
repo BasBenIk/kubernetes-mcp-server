@@ -43,13 +43,13 @@ func (s *UnreachableKubeconfigTargetSuite) TestServerStartsWithoutContactingUnse
 	}
 
 	cfg := config.BaseDefault()
-	cfg.KubeConfig = test.KubeconfigFile(s.T(), kubeconfig)
+	cfg.KubeConfig.SetForTest(test.KubeconfigFile(s.T(), kubeconfig))
 	provider, err := kubernetes.NewProvider(s.T().Context(), cfg)
 	s.Require().NoError(err)
 	s.T().Cleanup(provider.Close)
 
 	start := time.Now()
-	server, err := NewServer(s.T().Context(), Configuration{StaticConfig: cfg}, provider)
+	server, err := NewServer(s.T().Context(), Configuration{Config: cfg}, provider)
 	s.Require().NoError(err)
 	s.T().Cleanup(server.Close)
 	s.Less(time.Since(start), 2*time.Second, "unselected kubeconfig contexts must not delay server startup")

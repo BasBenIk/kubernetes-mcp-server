@@ -1,5 +1,28 @@
 [
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "apiGroup": "argoproj.io",
+                  "resource": "applications"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": true,

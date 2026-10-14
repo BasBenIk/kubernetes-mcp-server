@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -8,7 +9,8 @@ import (
 	"github.com/containers/kubernetes-mcp-server/pkg/config"
 	"github.com/containers/kubernetes-mcp-server/pkg/toolsets"
 	obsmetricsconfig "github.com/rhobs/obs-mcp/pkg/metrics"
-	obsmetricstoolset "github.com/rhobs/obs-mcp/pkg/metrics/toolset"
+	"github.com/rhobs/obs-mcp/pkg/toolcfg"
+	"k8s.io/utils/ptr"
 )
 
 // Register only the Kubernetes-neutral Prometheus and Alertmanager tools.
@@ -28,85 +30,70 @@ func (t *Toolset) GetDescription() string {
 	return "Query explicitly configured Prometheus and Alertmanager endpoints with query safety guardrails."
 }
 
-func (t *Toolset) GetTools(provider api.FilteringProvider) []api.ServerTool {
-	tools := (&obsmetricstoolset.Toolset{}).GetTools(provider)
+func (t *Toolset) GetTools(ctx context.Context, toolsetContext api.ToolsetContext) []api.ServerTool {
+	tools := (&obsmetricsconfig.Toolset{}).GetTools(ctx, toolsetContext)
 	for i := range tools {
+		// Unlike standalone obs-mcp, this embedder routes endpoints and
+		// kubeconfig credentials by the selected Kubernetes target.
+		tools[i].ClusterAware = ptr.To(true)
 		handler := tools[i].Handler
 		tools[i].Handler = func(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
 			metricsConfig, err := metricsConfigForTarget(params)
 			if err != nil {
 				return api.NewToolCallResult("", err), nil
 			}
-			params.BaseConfig = metricsConfig
+			// Use obs-mcp's request-scoped override rather than mutating the shared
+			// server configuration, so concurrent targets cannot share endpoints.
+			params.Context = toolcfg.With(params.Context, obsmetricsconfig.ToolsetName, metricsConfig)
 			return handler(params)
 		}
 	}
 	return tools
 }
 
-func (t *Toolset) GetPrompts() []api.ServerPrompt { return nil }
+func (t *Toolset) GetPrompts(context.Context, api.ToolsetContext) []api.ServerPrompt { return nil }
 
-func (t *Toolset) GetResources() []api.ServerResource { return nil }
+func (t *Toolset) GetResources(context.Context, api.ToolsetContext) []api.ServerResource { return nil }
 
-func (t *Toolset) GetResourceTemplates() []api.ServerResourceTemplate { return nil }
-
-type metricsConfigOverride struct {
-	api.BaseConfig
-	metricsConfig *obsmetricsconfig.Config
+func (t *Toolset) GetResourceTemplates(context.Context, api.ToolsetContext) []api.ServerResourceTemplate {
+	return nil
 }
 
-func (c metricsConfigOverride) GetToolsetConfig(name string) (api.ExtendedConfig, bool) {
-	if name == obsmetricsconfig.ToolsetName {
-		return c.metricsConfig, true
+func metricsConfigForTarget(params api.ToolHandlerParams) (*obsmetricsconfig.Config, error) {
+	if params.Config == nil {
+		return nil, errors.New("observability metrics configuration is required")
 	}
-	return c.BaseConfig.GetToolsetConfig(name)
-}
-
-func metricsConfigForTarget(params api.ToolHandlerParams) (metricsConfigOverride, error) {
 	extended, ok := params.GetToolsetConfig(obsmetricsconfig.ToolsetName)
 	if !ok {
-		return metricsConfigOverride{}, errors.New("observability metrics configuration is required")
+		return nil, errors.New("observability metrics configuration is required")
 	}
 	configured, ok := extended.(*obsmetricsconfig.Config)
 	if !ok {
-		return metricsConfigOverride{}, errors.New("invalid observability metrics configuration")
+		return nil, errors.New("invalid observability metrics configuration")
 	}
 	metricsConfig := *configured
-	target := ""
-	if provider, ok := params.FilteringProvider.(api.TargetProvider); ok {
-		target = provider.GetDefaultTarget()
-		if value, found := params.GetArguments()[provider.GetTargetParameterName()]; found {
-			selected, ok := value.(string)
-			if !ok {
-				return metricsConfigOverride{}, fmt.Errorf("%s parameter must be a string", provider.GetTargetParameterName())
-			}
-			target = selected
+	if endpoint, found := params.Config.ObservabilityMetricsContexts.Get()[params.Target]; found {
+		if endpoint.PrometheusURL != "" {
+			metricsConfig.PrometheusURL = endpoint.PrometheusURL
 		}
-	}
-	if provider, ok := params.BaseConfig.(api.ObservabilityMetricsEndpointsProvider); ok {
-		if endpoint, found := provider.GetObservabilityMetricsEndpoints()[target]; found {
-			if endpoint.PrometheusURL != "" {
-				metricsConfig.PrometheusURL = endpoint.PrometheusURL
-			}
-			if endpoint.AlertmanagerURL != "" {
-				metricsConfig.AlertmanagerURL = endpoint.AlertmanagerURL
-			}
+		if endpoint.AlertmanagerURL != "" {
+			metricsConfig.AlertmanagerURL = endpoint.AlertmanagerURL
 		}
 	}
 	if metricsConfig.PrometheusURL == "" {
-		return metricsConfigOverride{}, fmt.Errorf("observability metrics prometheus_url is required for target %q", target)
+		return nil, fmt.Errorf("observability metrics prometheus_url is required for target %q", params.Target)
 	}
-	if !params.IsRequireTLS() {
-		return metricsConfigOverride{BaseConfig: params.BaseConfig, metricsConfig: &metricsConfig}, nil
+	if !params.Config.RequireTLS.Get() {
+		return &metricsConfig, nil
 	}
 	if metricsConfig.Insecure {
-		return metricsConfigOverride{}, errors.New("require_tls is enabled but observability metrics insecure is true")
+		return nil, errors.New("require_tls is enabled but observability metrics insecure is true")
 	}
 	if err := config.ValidateURLsRequireTLS(map[string]string{
 		"observability metrics prometheus_url":   metricsConfig.PrometheusURL,
 		"observability metrics alertmanager_url": metricsConfig.AlertmanagerURL,
 	}); err != nil {
-		return metricsConfigOverride{}, err
+		return nil, err
 	}
-	return metricsConfigOverride{BaseConfig: params.BaseConfig, metricsConfig: &metricsConfig}, nil
+	return &metricsConfig, nil
 }

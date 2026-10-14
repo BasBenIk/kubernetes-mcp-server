@@ -16,6 +16,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/containers/kubernetes-mcp-server/pkg/api"
+	"github.com/containers/kubernetes-mcp-server/pkg/config"
 	"github.com/containers/kubernetes-mcp-server/pkg/klogutil"
 )
 
@@ -100,11 +101,11 @@ func (d *healthDiagnostics) setSkipped(names []string, reason string) {
 func initHealthChecks() []api.ServerPrompt {
 	return []api.ServerPrompt{
 		{
-			Prompt: api.Prompt{
+			Prompt: config.Prompt{
 				Name:        "cluster-health-check",
 				Title:       "Cluster Health Check",
 				Description: "Assess Kubernetes cluster health with bounded diagnostic collection",
-				Arguments: []api.PromptArgument{
+				Arguments: []config.PromptArgument{
 					{
 						Name:        "check_events",
 						Description: "Include recent warning/error events (true/false, default: true)",
@@ -112,14 +113,15 @@ func initHealthChecks() []api.ServerPrompt {
 					},
 				},
 			},
+			RBAC:    healthCheckRBAC(false),
 			Handler: clusterHealthCheckHandler,
 		},
 		{
-			Prompt: api.Prompt{
+			Prompt: config.Prompt{
 				Name:        "namespace-health-check",
 				Title:       "Namespace Health Check",
 				Description: "Assess Kubernetes workload health within one namespace",
-				Arguments: []api.PromptArgument{
+				Arguments: []config.PromptArgument{
 					{
 						Name:        "namespace",
 						Description: "Namespace to assess",
@@ -132,9 +134,43 @@ func initHealthChecks() []api.ServerPrompt {
 					},
 				},
 			},
+			RBAC:    healthCheckRBAC(true),
 			Handler: namespaceHealthCheckHandler,
 		},
 	}
+}
+
+func healthCheckRBAC(namespaceScoped bool) *api.RBACMetadata {
+	var requirements []api.RBACRequirement
+	namespace := &api.RBACNamespace{AllNamespaces: true}
+	if namespaceScoped {
+		namespace = &api.RBACNamespace{Argument: "namespace"}
+		requirements = append(requirements, api.RBACRequirement{
+			Verbs:        []string{"get"},
+			Target:       api.RBACTarget{Resource: &api.RBACResourceTarget{Resource: "namespaces"}},
+			ResourceName: &api.RBACResourceName{Argument: "namespace"},
+		})
+	} else {
+		for _, resource := range []string{"nodes", "namespaces"} {
+			requirements = append(requirements, api.RBACRequirement{
+				Verbs:  []string{"list"},
+				Target: api.RBACTarget{Resource: &api.RBACResourceTarget{Resource: resource}},
+			})
+		}
+	}
+	for _, resource := range []api.RBACResourceTarget{
+		{Resource: "pods"},
+		{APIGroup: "apps", Resource: "deployments"},
+		{APIGroup: "apps", Resource: "statefulsets"},
+		{APIGroup: "apps", Resource: "daemonsets"},
+		{Resource: "persistentvolumeclaims"},
+		{Resource: "events"},
+	} {
+		requirements = append(requirements, api.RBACRequirement{
+			Verbs: []string{"list"}, Target: api.RBACTarget{Resource: &resource}, Namespace: namespace,
+		})
+	}
+	return api.RBACBounded(requirements...)
 }
 
 func clusterHealthCheckHandler(params api.PromptHandlerParams) (*api.PromptCallResult, error) {

@@ -1,5 +1,13 @@
 [
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "unbounded": {
+          "reason": "Requires get access to Kubernetes discovery non-resource URLs under /api and /apis"
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": true,
@@ -24,6 +32,12 @@
     "title": "API Resources: List by Kind"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "none": {},
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -45,6 +59,28 @@
     "title": "Configuration: View"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "resource": "events"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -71,6 +107,25 @@
     "title": "Events: List"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "target": {
+                "resource": {
+                  "resource": "namespaces"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -93,6 +148,42 @@
     "title": "Namespaces: List"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "resource": {
+                  "resource": "nodes"
+                }
+              },
+              "verbs": [
+                "get"
+              ]
+            },
+            {
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "resource": {
+                  "resource": "nodes",
+                  "subresource": "proxy"
+                }
+              },
+              "verbs": [
+                "get"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -128,6 +219,42 @@
     "title": "Node: Log"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "resource": {
+                  "resource": "nodes"
+                }
+              },
+              "verbs": [
+                "get"
+              ]
+            },
+            {
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "resource": {
+                  "resource": "nodes",
+                  "subresource": "proxy"
+                }
+              },
+              "verbs": [
+                "get"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -152,6 +279,37 @@
     "title": "Node: Stats Summary"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "target": {
+                "resource": {
+                  "apiGroup": "metrics.k8s.io",
+                  "resource": "nodes"
+                }
+              },
+              "verbs": [
+                "get",
+                "list"
+              ]
+            },
+            {
+              "target": {
+                "resource": {
+                  "resource": "nodes"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": true,
@@ -178,6 +336,61 @@
     "title": "Nodes: Top"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "resource": {
+                  "resource": "pods"
+                }
+              },
+              "verbs": [
+                "get",
+                "delete"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "resource": "services"
+                }
+              },
+              "verbs": [
+                "list",
+                "delete"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "apiGroup": "route.openshift.io",
+                  "resource": "routes"
+                }
+              },
+              "verbs": [
+                "list",
+                "delete"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": true,
       "idempotentHint": true,
@@ -206,6 +419,49 @@
     "title": "Pods: Delete"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "resource": {
+                  "resource": "pods"
+                }
+              },
+              "verbs": [
+                "get"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "resource": {
+                  "resource": "pods",
+                  "subresource": "exec"
+                }
+              },
+              "verbs": [
+                "get",
+                "create"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": true,
       "idempotentHint": false,
@@ -246,6 +502,31 @@
     "title": "Pods: Exec"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "resource": {
+                  "resource": "pods"
+                }
+              },
+              "verbs": [
+                "get"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -274,6 +555,28 @@
     "title": "Pods: Get"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "all": true
+              },
+              "target": {
+                "resource": {
+                  "resource": "pods"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -301,6 +604,28 @@
     "title": "Pods: List"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "resource": "pods"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -335,6 +660,48 @@
     "title": "Pods: List in Namespace"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "resource": {
+                  "resource": "pods"
+                }
+              },
+              "verbs": [
+                "get"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "resource": {
+                  "resource": "pods",
+                  "subresource": "log"
+                }
+              },
+              "verbs": [
+                "get"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -377,6 +744,58 @@
     "title": "Pods: Log"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "resource": "pods"
+                }
+              },
+              "verbs": [
+                "create",
+                "patch"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "resource": "services"
+                }
+              },
+              "verbs": [
+                "create",
+                "patch"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "apiGroup": "route.openshift.io",
+                  "resource": "routes"
+                }
+              },
+              "verbs": [
+                "create",
+                "patch"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -413,6 +832,30 @@
     "title": "Pods: Run"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "all": true
+              },
+              "target": {
+                "resource": {
+                  "apiGroup": "metrics.k8s.io",
+                  "resource": "pods"
+                }
+              },
+              "verbs": [
+                "get",
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": true,
@@ -448,6 +891,26 @@
     "title": "Pods: Top"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "target": {
+                "resource": {
+                  "apiGroup": "project.openshift.io",
+                  "resource": "projects"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -464,6 +927,26 @@
     "title": "Projects: List"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "target": {
+                "manifest": {
+                  "argument": "resource"
+                }
+              },
+              "verbs": [
+                "create",
+                "patch"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": true,
       "idempotentHint": true,
@@ -492,6 +975,32 @@
     "title": "Resources: Create or Update"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "gvk": {
+                  "apiVersionArgument": "apiVersion",
+                  "kindArgument": "kind"
+                }
+              },
+              "verbs": [
+                "delete"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": true,
       "idempotentHint": true,
@@ -534,6 +1043,32 @@
     "title": "Resources: Delete"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "gvk": {
+                  "apiVersionArgument": "apiVersion",
+                  "kindArgument": "kind"
+                }
+              },
+              "verbs": [
+                "get"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -576,6 +1111,29 @@
     "title": "Resources: Get"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "gvk": {
+                  "apiVersionArgument": "apiVersion",
+                  "kindArgument": "kind"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": false,
       "idempotentHint": false,
@@ -629,6 +1187,34 @@
     "title": "Resources: List"
   },
   {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "resourceName": {
+                "argument": "name"
+              },
+              "target": {
+                "gvk": {
+                  "apiVersionArgument": "apiVersion",
+                  "kindArgument": "kind",
+                  "subresource": "scale"
+                }
+              },
+              "verbs": [
+                "get",
+                "update"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
     "annotations": {
       "destructiveHint": true,
       "idempotentHint": true,

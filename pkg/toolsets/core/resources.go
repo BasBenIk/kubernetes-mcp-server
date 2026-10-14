@@ -15,22 +15,18 @@ import (
 	"github.com/containers/kubernetes-mcp-server/pkg/output"
 )
 
-func initResources(p api.FilteringProvider) []api.ServerTool {
+func initResources(ctx context.Context, inspector api.ClusterInspector, targetCompatibilityFiltersEnabled bool) []api.ServerTool {
 	// commonApiVersion lists example apiVersion/kind pairs that are appended to the
 	// resources_* tool descriptions as hints for the model. It is extended with
 	// target-specific kinds (e.g. OpenShift Route) when a target cluster exposes them,
 	// so the examples the model sees match the cluster it is talking to.
 	commonApiVersion := "v1 Pod, v1 Service, v1 Node, apps/v1 Deployment, networking.k8s.io/v1 Ingress"
-	// Only check GVKs when target compatibility filtering is enabled
-	if p.IsTargetCompatibilityToolFiltersEnabled() {
-		if p.AnyTargetHasGVKs(context.TODO(), []schema.GroupVersionKind{
-			{Group: "route.openshift.io", Version: "v1", Kind: "Route"},
-		}) {
+	if !targetCompatibilityFiltersEnabled {
+		commonApiVersion += ", route.openshift.io/v1 Route"
+	} else {
+		if api.AnyTargetHasGVK(ctx, inspector, schema.GroupVersionKind{Group: "route.openshift.io", Version: "v1", Kind: "Route"}) {
 			commonApiVersion += ", route.openshift.io/v1 Route"
 		}
-	} else {
-		// When filtering disabled, optimistically include OpenShift resources in description
-		commonApiVersion += ", route.openshift.io/v1 Route"
 	}
 	commonApiVersion = fmt.Sprintf("(common apiVersion and kind include: %s)", commonApiVersion)
 	return []api.ServerTool{
@@ -73,7 +69,14 @@ func initResources(p api.FilteringProvider) []api.ServerTool {
 				DestructiveHint: ptr.To(false),
 				OpenWorldHint:   ptr.To(true),
 			},
-		}, Handler: resourcesList},
+		}, RBAC: api.RBACBounded(api.RBACRequirement{
+			Verbs: []string{"list"},
+			Target: api.RBACTarget{GVK: &api.RBACGVKTarget{
+				APIVersionArgument: "apiVersion",
+				KindArgument:       "kind",
+			}},
+			Namespace: &api.RBACNamespace{Argument: "namespace"},
+		}), Handler: resourcesList},
 		{Tool: api.Tool{
 			Name:        "resources_get",
 			Description: "Get a Kubernetes resource in the current cluster by providing its apiVersion, kind, optionally the namespace, and its name\n" + commonApiVersion,
@@ -109,7 +112,15 @@ func initResources(p api.FilteringProvider) []api.ServerTool {
 				DestructiveHint: ptr.To(false),
 				OpenWorldHint:   ptr.To(true),
 			},
-		}, Handler: resourcesGet},
+		}, RBAC: api.RBACBounded(api.RBACRequirement{
+			Verbs: []string{"get"},
+			Target: api.RBACTarget{GVK: &api.RBACGVKTarget{
+				APIVersionArgument: "apiVersion",
+				KindArgument:       "kind",
+			}},
+			Namespace:    &api.RBACNamespace{Argument: "namespace"},
+			ResourceName: &api.RBACResourceName{Argument: "name"},
+		}), Handler: resourcesGet},
 		{Tool: api.Tool{
 			Name:        "resources_create_or_update",
 			Description: "Create or update a Kubernetes resource via Server-Side Apply. The manifest is the complete desired state: any field this tool previously set and the new manifest omits is removed. To edit an existing resource, fetch it with resources_get, modify it, then re-apply the full resource.\n" + commonApiVersion,
@@ -133,7 +144,10 @@ func initResources(p api.FilteringProvider) []api.ServerTool {
 				IdempotentHint:  ptr.To(true),
 				OpenWorldHint:   ptr.To(true),
 			},
-		}, Handler: resourcesCreateOrUpdate},
+		}, RBAC: api.RBACBounded(api.RBACRequirement{
+			Verbs:  []string{"create", "patch"},
+			Target: api.RBACTarget{Manifest: &api.RBACManifestTarget{Argument: "resource"}},
+		}), Handler: resourcesCreateOrUpdate},
 		{Tool: api.Tool{
 			Name:        "resources_delete",
 			Description: "Delete a Kubernetes resource in the current cluster by providing its apiVersion, kind, optionally the namespace, and its name\n" + commonApiVersion,
@@ -169,7 +183,15 @@ func initResources(p api.FilteringProvider) []api.ServerTool {
 				IdempotentHint:  ptr.To(true),
 				OpenWorldHint:   ptr.To(true),
 			},
-		}, Handler: resourcesDelete},
+		}, RBAC: api.RBACBounded(api.RBACRequirement{
+			Verbs: []string{"delete"},
+			Target: api.RBACTarget{GVK: &api.RBACGVKTarget{
+				APIVersionArgument: "apiVersion",
+				KindArgument:       "kind",
+			}},
+			Namespace:    &api.RBACNamespace{Argument: "namespace"},
+			ResourceName: &api.RBACResourceName{Argument: "name"},
+		}), Handler: resourcesDelete},
 		{Tool: api.Tool{
 			Name:        "resources_scale",
 			Description: "Get or update the scale of a Kubernetes resource in the current cluster by providing its apiVersion, kind, name, and optionally the namespace. If the scale is set in the tool call, the scale will be updated to that value. Always returns the current scale of the resource",
@@ -205,7 +227,16 @@ func initResources(p api.FilteringProvider) []api.ServerTool {
 				IdempotentHint:  ptr.To(true),
 				OpenWorldHint:   ptr.To(true),
 			},
-		}, Handler: resourcesScale},
+		}, RBAC: api.RBACBounded(api.RBACRequirement{
+			Verbs: []string{"get", "update"},
+			Target: api.RBACTarget{GVK: &api.RBACGVKTarget{
+				APIVersionArgument: "apiVersion",
+				KindArgument:       "kind",
+				Subresource:        "scale",
+			}},
+			Namespace:    &api.RBACNamespace{Argument: "namespace"},
+			ResourceName: &api.RBACResourceName{Argument: "name"},
+		}), Handler: resourcesScale},
 		{Tool: api.Tool{
 			Name:        "api_resources_list",
 			Description: "Find Kubernetes API resource types matching a kind, including apiVersion, plural name, and scope. Use this before generic resource tools when a CRD apiVersion is unknown.",
@@ -226,17 +257,13 @@ func initResources(p api.FilteringProvider) []api.ServerTool {
 				IdempotentHint:  ptr.To(true),
 				OpenWorldHint:   ptr.To(true),
 			},
-		}, Handler: apiResourcesList},
+		}, RBAC: api.RBACUnbounded("Requires get access to Kubernetes discovery non-resource URLs under /api and /apis"), Handler: apiResourcesList},
 	}
 }
 
-type secretRedactionConfig interface {
-	GetRedactSecrets() string
-}
-
 func newCore(params api.ToolHandlerParams) *kubernetes.Core {
-	if config, ok := params.BaseConfig.(secretRedactionConfig); ok {
-		return kubernetes.NewCore(params, kubernetes.WithSecretRedaction(config.GetRedactSecrets()))
+	if params.Config != nil {
+		return kubernetes.NewCore(params, kubernetes.WithSecretRedaction(params.Config.RedactSecrets.Get()))
 	}
 	return kubernetes.NewCore(params)
 }

@@ -28,6 +28,11 @@ Tasks are grouped into suites via a `suite: <name>` label. The available suites 
 `core-readonly` eval reuses tasks labeled `readonly: "true"` across the core and
 config libraries.
 
+A second, orthogonal `readonly: "true"` label marks tasks that are safe to run
+against a server started with `read_only = true`. It cuts across the `suite:` label
+rather than replacing it — see [Read-only suite](#read-only-suite-core-readonly)
+below.
+
 ## Prerequisites
 
 - A Kubernetes cluster (kind, minikube, or any cluster) and `kubectl` configured for it
@@ -126,21 +131,6 @@ make run-evals SUITE=core AGENT=builtin-google
 Different models may pick different tools (`pods_*` or `resources_*`) for the same
 task. The assertions accept either, for example `toolPattern: "(pods_.*|resources_.*)"`.
 
-## Read-Only Eval
-
-The `core-readonly` suite proves agents can complete live diagnostic tasks against a
-server running with `--read-only`, while its suite-wide assertions reject destructive
-tool calls. It also asks the agent to update a ConfigMap and independently checks with
-`kubectl` that the original value was preserved. It intentionally excludes
-`configuration_view`, which is not exposed in read-only mode because it can materialize
-kubeconfig credentials.
-
-```bash
-make run-server READ_ONLY=true TOOLSETS=core,config
-make run-evals SUITE=core-readonly AGENT=builtin-openai
-make stop-server
-```
-
 ## Eval configs
 
 `make run-evals` resolves the eval config in priority order:
@@ -201,6 +191,47 @@ each `taskSets` entry determine which tasks run.
 Note: with `AGENT=acp-anthropic` every suite is keyless (agent and judge both run
 on your Claude subscription). With `builtin-*` agents the judge-backed tasks need
 the provider's API key (see [Eval configs](#eval-configs)).
+
+## Read-only suite (`core-readonly`)
+
+Proves that a model using only the tools exposed by a server started with
+`read_only=true` can still complete real read-only diagnostic workflows (log
+inspection, event filtering, metrics). It reuses the read-only-compatible
+tasks already in `core`/`config` via the `readonly: "true"` label (see
+[Filtering tasks by suite](#filtering-tasks-by-suite) above) instead of
+duplicating them into a new suite.
+
+As a suite-level safety net, every task also asserts `toolsNotUsed` for
+`resources_create_or_update|resources_delete|resources_scale|pods_delete|pods_exec|pods_run`
+(see `evals/core-eval-testing/builtin-openai/eval-core-readonly.yaml`). `pods_exec`
+is included even though it isn't a CRUD write tool because it's annotated
+`DestructiveHint: true` in `pkg/toolsets/core/pods.go` -- depending on the pod's
+entrypoint, an executed command can kill the pod.
+
+The fork also includes `verify-write-blocked`: it asks the agent to update a
+ConfigMap and independently verifies with `kubectl` that its original value
+remains unchanged. This complements deterministic tests in
+`pkg/mcp/mcp_tools_test.go` that directly invoke hidden write tools and verify
+non-mutation without depending on a model. The credential-viewing task is
+intentionally not labeled `readonly`: `configuration_view` is excluded from the
+fork's read-only tool surface even when explicitly allowlisted.
+
+The MCP server **must** be started in read-only mode for this suite — its
+tasks assume write tools are unavailable. With `SUITE=core-readonly`,
+`run-server` defaults `READ_ONLY` to `true` and adds `read_only = true` as the
+last drop-in of its generated config dir, so it overrides the `read_only = false`
+in `dev/config/mcp-configs`. The suite does not check the server's mode itself,
+so against a server without read-only mode it would still pass without proving
+anything. Likewise, `EVAL_LABEL_SELECTOR` defaults to `readonly=true` instead of
+`suite=$(SUITE)`:
+
+```bash
+make run-server SUITE=core-readonly TOOLSETS=core,config
+make run-evals SUITE=core-readonly
+make stop-server
+```
+
+`READ_ONLY=true|false` can still be passed explicitly to override the default.
 
 ## Versions
 

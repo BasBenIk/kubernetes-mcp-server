@@ -195,11 +195,6 @@ func (c *Core) resourcesCreateOrUpdate(ctx context.Context, resources []*unstruc
 		if rErr != nil {
 			return nil, rErr
 		}
-		// Apply may return the same object instance used by the dynamic client.
-		// Redact only a copy so presentation redaction can never affect persistence.
-		resources[i] = resources[i].DeepCopy()
-		c.redactor.Apply(resources[i])
-
 		namespace := obj.GetNamespace()
 		// If it's a namespaced resource and namespace wasn't provided, try to use the default configured one
 		if namespaced, nsErr := c.isNamespaced(&gvk); nsErr == nil && namespaced {
@@ -216,6 +211,10 @@ func (c *Core) resourcesCreateOrUpdate(ctx context.Context, resources []*unstruc
 		if rErr != nil {
 			return nil, rErr
 		}
+		// Redact the API response, not the input manifest. Apply replaces the
+		// result with the server's object, so redacting before Apply is ineffective.
+		resources[i] = resources[i].DeepCopy()
+		c.redactor.Apply(resources[i])
 		// Clear the cache to ensure the next operation is performed on the latest exposed APIs (will change after the CRD creation)
 		if gvk.Kind == "CustomResourceDefinition" && !dryRun {
 			c.RESTMapper().Reset()

@@ -16,7 +16,7 @@ type ArgoCDSuite struct{ BaseMcpSuite }
 
 func (s *ArgoCDSuite) SetupTest() {
 	s.BaseMcpSuite.SetupTest()
-	s.Cfg.Toolsets = append(s.Cfg.Toolsets, "argocd")
+	s.Cfg.Toolsets.SetForTest(append(s.Cfg.Toolsets.Get(), "argocd"))
 	dynamicClient := dynamic.NewForConfigOrDie(test.EnvTestRestConfig())
 	_, err := dynamicClient.Resource(schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications"}).Namespace("default").Create(s.T().Context(), &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "argoproj.io/v1alpha1", "kind": "Application",

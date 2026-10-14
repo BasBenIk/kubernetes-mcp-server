@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,6 +13,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"github.com/containers/kubernetes-mcp-server/internal/test"
+	"github.com/containers/kubernetes-mcp-server/pkg/config/configtest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/suite"
 )
@@ -150,13 +150,12 @@ func (s *HealthCheckPromptSuite) TestHealthCheckOutputIsBoundedAndOrdered() {
 func (s *HealthCheckPromptSuite) TestHealthCheckReportsPartialCollection() {
 	s.Close()
 	s.McpClient = nil
-	s.Cfg.DeniedResources = nil
-	s.Require().NoError(toml.Unmarshal([]byte(`
+	configtest.OverlayTOML(s.T(), &s.Cfg, `
 [[denied_resources]]
 group = ""
 version = "v1"
 kind = "Pod"
-`), s.Cfg))
+`)
 	s.InitMcpClient()
 
 	result, err := s.GetPrompt("cluster-health-check", map[string]string{"check_events": "false"})

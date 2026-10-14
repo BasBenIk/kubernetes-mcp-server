@@ -55,6 +55,7 @@ func initConfiguration() []api.ServerTool {
 			},
 			ClusterAware:       ptr.To(false),
 			TargetListProvider: ptr.To(true),
+			RBAC:               api.RBACNone(),
 			Handler:            contextsList,
 		},
 		// Generic targets list tool for non-kubeconfig providers (e.g., ACM).
@@ -79,6 +80,7 @@ func initConfiguration() []api.ServerTool {
 			},
 			ClusterAware:       ptr.To(false),
 			TargetListProvider: ptr.To(true),
+			RBAC:               api.RBACNone(),
 			Handler:            nil,
 		},
 		{
@@ -107,6 +109,7 @@ func initConfiguration() []api.ServerTool {
 				},
 			},
 			ClusterAware: ptr.To(false),
+			RBAC:         api.RBACNone(),
 			Handler:      configurationView,
 		},
 	}

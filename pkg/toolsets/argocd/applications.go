@@ -32,7 +32,7 @@ type applicationStatus struct {
 	OperationMessage     string `json:"operation_message,omitempty"`
 }
 
-func applicationsTools(p api.FilteringProvider) []api.ServerTool {
+func applicationsTools(ctx context.Context, toolsetContext api.ToolsetContext) []api.ServerTool {
 	return []api.ServerTool{{
 		Tool: api.Tool{
 			Name:        "argocd_applications_status",
@@ -44,11 +44,16 @@ func applicationsTools(p api.FilteringProvider) []api.ServerTool {
 			Annotations: api.ToolAnnotations{Title: "Argo CD: Application Fleet Status", ReadOnlyHint: ptr.To(true), DestructiveHint: ptr.To(false), IdempotentHint: ptr.To(true), OpenWorldHint: ptr.To(true)},
 		},
 		Handler: applicationStatuses,
+		RBAC: api.RBACBounded(api.RBACRequirement{
+			Verbs:     []string{"list"},
+			Target:    api.RBACTarget{Resource: &api.RBACResourceTarget{APIGroup: "argoproj.io", Resource: "applications"}},
+			Namespace: &api.RBACNamespace{Argument: "namespace"},
+		}),
 		TargetCompatibilityFilters: []func() bool{func() bool {
-			if !p.IsTargetCompatibilityToolFiltersEnabled() {
+			if !toolsetContext.TargetCompatibilityFiltersEnabled {
 				return true
 			}
-			return p.AnyTargetHasGVKs(context.TODO(), []schema.GroupVersionKind{applicationGVK})
+			return api.AnyTargetHasGVK(ctx, toolsetContext.Inspector, applicationGVK)
 		}},
 	}}
 }

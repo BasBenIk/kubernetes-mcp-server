@@ -3,6 +3,7 @@ package core
 import (
 	"testing"
 
+	"github.com/containers/kubernetes-mcp-server/pkg/api"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -11,7 +12,7 @@ type ClusterHealthCheckSuite struct {
 }
 
 func (s *ClusterHealthCheckSuite) TestPromptIsRegistered() {
-	prompts := (&Toolset{}).GetPrompts()
+	prompts := (&Toolset{}).GetPrompts(s.T().Context(), api.ToolsetContext{})
 	s.Require().Len(prompts, 2)
 
 	s.Run("cluster health check accepts optional event setting", func() {
@@ -36,6 +37,31 @@ func (s *ClusterHealthCheckSuite) TestPromptIsRegistered() {
 		s.False(prompt.Prompt.Arguments[1].Required)
 		s.NotNil(prompt.Handler)
 	})
+}
+
+func (s *ClusterHealthCheckSuite) TestPromptRBACMetadata() {
+	prompts := (&Toolset{}).GetPrompts(s.T().Context(), api.ToolsetContext{})
+	for _, prompt := range prompts {
+		s.Run(prompt.Prompt.Name, func() {
+			s.Require().NoError(prompt.RBAC.Validate())
+			namespaceScoped := prompt.Prompt.Name == "namespace-health-check"
+			for _, requirement := range prompt.RBAC.Bounded.Requirements {
+				resource := requirement.Target.Resource.Resource
+				s.NotEqual("clusteroperators", resource, "bounded fork health checks do not query ClusterOperators")
+				if namespaceScoped && resource == "namespaces" {
+					s.Equal([]string{"get"}, requirement.Verbs)
+					s.Equal(&api.RBACResourceName{Argument: "namespace"}, requirement.ResourceName)
+					continue
+				}
+				if namespaceScoped {
+					s.NotEqual("nodes", resource)
+					s.Equal(&api.RBACNamespace{Argument: "namespace"}, requirement.Namespace)
+				} else if resource != "nodes" && resource != "namespaces" {
+					s.Equal(&api.RBACNamespace{AllNamespaces: true}, requirement.Namespace)
+				}
+			}
+		})
+	}
 }
 
 func TestClusterHealthCheckSuite(t *testing.T) {

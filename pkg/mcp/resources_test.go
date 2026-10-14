@@ -3,12 +3,12 @@ package mcp
 import (
 	"encoding/json"
 	"github.com/containers/kubernetes-mcp-server/internal/test"
+	"github.com/containers/kubernetes-mcp-server/pkg/config/configtest"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/suite"
 	appsv1 "k8s.io/api/apps/v1"
@@ -222,12 +222,12 @@ func (s *ResourcesSuite) TestAPIResourcesList() {
 }
 
 func (s *ResourcesSuite) TestResourcesListDenied() {
-	s.Require().NoError(toml.Unmarshal([]byte(`
+	configtest.OverlayTOML(s.T(), &s.Cfg, `
 		denied_resources = [
 			{ version = "v1", kind = "Secret" },
 			{ group = "rbac.authorization.k8s.io", version = "v1" }
 		]
-	`), s.Cfg), "Expected to parse denied resources config")
+	`)
 	s.InitMcpClient()
 	s.Run("resources_list (denied by kind)", func() {
 		deniedByKind, err := s.CallTool("resources_list", map[string]interface{}{"apiVersion": "v1", "kind": "Secret"})
@@ -287,7 +287,7 @@ func (s *ResourcesSuite) TestResourcesListForbidden() {
 }
 
 func (s *ResourcesSuite) TestResourcesListAsTable() {
-	s.Cfg.ListOutput = "table"
+	s.Cfg.ListOutput.SetForTest("table")
 	s.Require().NoError(EnvTestInOpenShift(s.T().Context()), "Expected to configure test for OpenShift")
 	s.T().Cleanup(func() {
 		s.Require().NoError(EnvTestInOpenShiftClear(s.T().Context()), "Expected to clear OpenShift test configuration")
@@ -486,12 +486,12 @@ func (s *ResourcesSuite) TestResourcesGet() {
 }
 
 func (s *ResourcesSuite) TestResourcesGetDenied() {
-	s.Require().NoError(toml.Unmarshal([]byte(`
+	configtest.OverlayTOML(s.T(), &s.Cfg, `
 		denied_resources = [
 			{ version = "v1", kind = "Secret" },
 			{ group = "rbac.authorization.k8s.io", version = "v1" }
 		]
-	`), s.Cfg), "Expected to parse denied resources config")
+	`)
 	s.InitMcpClient()
 	kc := kubernetes.NewForConfigOrDie(test.EnvTestRestConfig())
 	_, _ = kc.CoreV1().Secrets("default").Create(s.T().Context(), &corev1.Secret{
@@ -709,7 +709,7 @@ func (s *ResourcesSuite) TestResourcesCreateOrUpdateDryRun() {
 }
 
 func (s *ResourcesSuite) TestSecretRedaction() {
-	s.Require().NoError(toml.Unmarshal([]byte(`redact_secrets = "opaque"`), s.Cfg))
+	configtest.OverlayTOML(s.T(), &s.Cfg, `redact_secrets = "opaque"`)
 	s.InitMcpClient()
 	client := kubernetes.NewForConfigOrDie(test.EnvTestRestConfig())
 	_, err := client.CoreV1().Secrets("default").Create(s.T().Context(), &corev1.Secret{
@@ -739,6 +739,8 @@ func (s *ResourcesSuite) TestSecretRedaction() {
 		s.Require().NoError(err)
 		s.False(result.IsError)
 		s.NotContains(result.Content[0].(*mcp.TextContent).Text, "super-secret")
+		s.NotContains(result.Content[0].(*mcp.TextContent).Text, "c3VwZXItc2VjcmV0")
+		s.Contains(result.Content[0].(*mcp.TextContent).Text, "[REDACTED]")
 		secret, err := client.CoreV1().Secrets("default").Get(s.T().Context(), "apply-redacted-secret", metav1.GetOptions{})
 		s.Require().NoError(err)
 		s.Equal("super-secret", string(secret.Data["password"]))
@@ -788,12 +790,12 @@ func (s *ResourcesSuite) TestResourcesCreateOrUpdateForcesSSA() {
 }
 
 func (s *ResourcesSuite) TestResourcesCreateOrUpdateDenied() {
-	s.Require().NoError(toml.Unmarshal([]byte(`
+	configtest.OverlayTOML(s.T(), &s.Cfg, `
 		denied_resources = [
 			{ version = "v1", kind = "Secret" },
 			{ group = "rbac.authorization.k8s.io", version = "v1" }
 		]
-	`), s.Cfg), "Expected to parse denied resources config")
+	`)
 	s.InitMcpClient()
 	s.Run("resources_create_or_update (denied by kind)", func() {
 		secretYaml := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: a-denied-secret\n  namespace: default\n"
@@ -950,12 +952,12 @@ func (s *ResourcesSuite) TestResourcesDelete() {
 }
 
 func (s *ResourcesSuite) TestResourcesDeleteDenied() {
-	s.Require().NoError(toml.Unmarshal([]byte(`
+	configtest.OverlayTOML(s.T(), &s.Cfg, `
 		denied_resources = [
 			{ version = "v1", kind = "Secret" },
 			{ group = "rbac.authorization.k8s.io", version = "v1" }
 		]
-	`), s.Cfg), "Expected to parse denied resources config")
+	`)
 	s.InitMcpClient()
 	kc := kubernetes.NewForConfigOrDie(test.EnvTestRestConfig())
 	_, _ = kc.CoreV1().ConfigMaps("default").Create(s.T().Context(), &corev1.ConfigMap{
@@ -1121,12 +1123,12 @@ func (s *ResourcesSuite) TestResourcesScale() {
 }
 
 func (s *ResourcesSuite) TestResourcesScaleDenied() {
-	s.Require().NoError(toml.Unmarshal([]byte(`
+	configtest.OverlayTOML(s.T(), &s.Cfg, `
 		denied_resources = [
 			{ group = "apps", version = "v1" },
 			{ group = "", version = "v1", kind = "ReplicationController" }
 		]
-	`), s.Cfg), "Expected to parse denied resources config")
+	`)
 	s.InitMcpClient()
 	s.Run("resources_scale get (denied by kind)", func() {
 		deniedByKind, err := s.CallTool("resources_scale", map[string]interface{}{

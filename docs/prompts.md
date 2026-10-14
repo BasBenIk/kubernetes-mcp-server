@@ -115,18 +115,18 @@ Place your prompts in the `config.toml` file used by the MCP server. Specify the
 
 ## Toolset Prompts
 
-Toolsets can provide built-in prompts by implementing the `GetPrompts()` method. This allows toolset developers to ship workflow templates alongside their tools.
+Toolsets can provide built-in prompts by implementing `GetPrompts(context.Context, api.ToolsetContext)`. This allows toolset developers to ship workflow templates alongside their tools.
 
 ### Implementing Toolset Prompts
 
 ```go
-func (t *MyToolset) GetPrompts() []api.ServerPrompt {
+func (t *MyToolset) GetPrompts(ctx context.Context, toolsetContext api.ToolsetContext) []api.ServerPrompt {
     return []api.ServerPrompt{
         {
-            Prompt: api.Prompt{
+            Prompt: config.Prompt{
                 Name:        "my-workflow",
                 Description: "Custom workflow for my toolset",
-                Arguments: []api.PromptArgument{
+                Arguments: []config.PromptArgument{
                     {
                         Name:        "namespace",
                         Description: "Target namespace",
